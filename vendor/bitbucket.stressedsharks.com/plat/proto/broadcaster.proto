@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "bitbucket.stressedsharks.com/plat/proto";
+
+/**
+The <b>Broadcaster Service</b> is responsible for sending raw bitcoin transactions to the bitcoin network.
+Upon success, it calls the FundingService.SetSpent() service to notify that the input(s) in this transaction have now been spent. 
+*/
+service Broadcaster {
+  // Broadcasts a bitcoin transaction to the bitcoin network.
+  rpc BroadcastTransaction (BroadcastTransactionRequest) returns (BroadcastTransactionResponse) {}
+
+}
+
+message BroadcastTransactionRequest {
+  bytes tx = 1; // This is an array of bytes containing the bitcoin transaction itself.
+}
+
+message BroadcastTransactionResponse {
+  string txid = 1; // The transaction ID of the transaction that was successfully written to the bitcoin node.
+  TransactionStatus status = 2; // The status of the tx submitted in the broadcast request
+}
+
+
+enum TransactionStatus {
+  FAILURE = 0; // the transaction failed to submit
+  EXISTS = 1; // the transaction has previously been submitted
+  SUCCESS = 2; // the transaction submission has succeded
+}

@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "bitbucket.stressedsharks.com/plat/proto";
+
+// The KeyContext structure holds information about a crypto service.
+message KeyContext {
+  string alias = 1; // The alias that represents the private key to use.
+  string path = 2; // The path to use.
+}

@@ -1,0 +1,7 @@
+.history
+docs/
+.idea
+node_modules/
+.DS_Store
+cover.out
+cover.html

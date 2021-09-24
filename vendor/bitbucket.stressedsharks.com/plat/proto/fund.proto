@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+import "key_context.proto";
+
+package proto;
+
+option go_package = "bitbucket.stressedsharks.com/plat/proto";
+
+/**
+A Fund is a simple structure that holds information about a UTXO. This is used by the TransactionBuilder, SplittingService and FundingService.
+*/
+message Fund {
+  string txid = 1; // The transaction ID of the UTXO.
+  uint32 index = 2; // The vout / n / index of the UTXO.
+  bytes locking_script = 3; // The Locking Script of the UTXO.
+  uint64 satoshis = 4; // The value of the UTXO.
+  KeyContext signer = 5;
+}

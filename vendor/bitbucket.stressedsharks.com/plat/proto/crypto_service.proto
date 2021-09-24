@@ -1,0 +1,109 @@
+syntax = "proto3";
+
+import "key_context.proto";
+import "keystore.proto";
+
+package proto;
+
+option go_package = "bitbucket.stressedsharks.com/plat/proto";
+
+/**
+The <b>Crypto Service</b> takes a number of byte arrays and encrypts / decrypts them using Parcel Encryption.
+
+Parcel Encryption refers to a technique where each byte array is encrypted in turn wrapping the previous byte array like layers of wrapping paper on a parcel.  Each layer is encryped with a different deterministic key, so it is possible to reveal some layers of the encrypted payload without providing access to deeper wrapped items.
+*/
+service CryptoService {
+  // Encrypts an array of byte arrays.
+  rpc Encrypt (EncryptRequest) returns (EncryptResponse) {}
+
+  // Decrypts a ciphertext to an array of byte arrays.
+  rpc Decrypt (DecryptRequest) returns (DecryptResponse) {}
+
+  // Get a public key for a key context
+  rpc GetPublicKey (GetPublicKeyRequest) returns (GetPublicKeyResponse) {}
+
+  // Get multiple public keys for a key context after a path with some offset
+  rpc DerivePublicKeys (DerivePublicKeysRequest) returns (DerivePublicKeysResponse) {}
+
+  // Signs a hash with a key 
+  rpc SignHash (SignHashRequest) returns (SignHashResponse) {}
+
+  // Sign data with a key
+  rpc Sign (SignRequest) returns (SignResponse) {}
+
+  // Sign multiple hashes with key
+  rpc BatchSignHash (BatchSignHashRequest) returns (BatchSignHashResponse) {}
+
+  //create a new alias
+  rpc CreateAlias(CreateAliasRequest) returns (CreateAliasResponse) {}
+}
+
+message EncryptRequest {
+  KeyContext key_context = 1;
+  repeated bytes data = 2; // One or more arrays of byte arrays containing the data you wish to encrypt ([][]byte).
+}
+
+message EncryptResponse {
+  bytes data = 1; // The resulting ciphertext.
+}
+
+message DecryptRequest {
+  KeyContext key_context = 1;
+  bytes data = 2; // The ciphertext to decrypt ([]byte).
+}
+
+message DecryptResponse {
+  repeated bytes data = 1; // An array of one or more byte arrays ([][]byte).
+}
+
+message GetPublicKeyRequest {
+  KeyContext key_context = 1;
+}
+
+message GetPublicKeyResponse {
+  bytes public_key = 1; // array of bytes containing the public key
+  string address = 2;
+}
+
+message DerivePublicKeysRequest {
+  string alias = 1;
+  int64 counter = 2;
+  int64 offset = 3;
+}
+
+message DerivePublicKeysResponse {
+  repeated DerivedPublicKey public_keys = 1; // array of multiple public keys
+}
+
+message DerivedPublicKey {
+  bytes public_key = 1;
+  KeyContext key_context = 2;
+}
+
+message SignHashRequest {
+  KeyContext key_context = 1;
+  bytes hash = 2; // array of bytes containing the hash you wish to sign
+}
+
+message SignHashResponse {
+  bytes signature = 1; // array of bytes containing signature of the hash
+  bytes public_key = 2; // array of bytes containing the public key
+}
+
+message SignRequest {
+  KeyContext key_context = 1;
+  bytes data = 2; // array of bytes containing the data you wish to sign
+}
+
+message SignResponse {
+  bytes signature = 1; // array of bytes containing signature of the hashed data
+  bytes public_key = 2; // array of bytes containing the public key
+}
+
+message BatchSignHashRequest {
+  repeated SignHashRequest request_batch = 1; //array of SignHash requests
+}
+
+message BatchSignHashResponse {
+  repeated SignHashResponse response_batch = 1; //array of SighHash responses
+}

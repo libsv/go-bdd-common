@@ -1,0 +1,21 @@
+{
+  "name": "proto",
+  "version": "1.0.0",
+  "description": "Platform Services protobuf files",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "example": "examples"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "ssh://git@bitbucket.stressedsharks.com:8443/plat/proto.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "homepage": "https://bitbucket.stressedsharks.com/projects/plat/repos/proto/browse"
+}

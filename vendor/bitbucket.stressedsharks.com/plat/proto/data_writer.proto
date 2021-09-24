@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "bitbucket.stressedsharks.com/plat/proto";
+
+/**
+The <b>Data Writer</b> is responsible for writing arbitrary data to the blockchain.  In turn, it will delegate this request to the TransactionBuilder and return the txid that it gets back.
+
+*/
+service DataWriter {
+  // Write data to the blockchain.
+  rpc Write (WriteRequest) returns (WriteResponse) {}
+}
+
+message WriteRequest {
+  repeated bytes data = 1; // One or more arrays of byte arrays containing the data you wish to write ([][]byte).  Each byte array is written as a separate OP_PUSH. 
+}
+
+message WriteResponse {
+  string txid = 1; // The transaction ID of the transaction that was successfully written to the bitcoin node.
+}

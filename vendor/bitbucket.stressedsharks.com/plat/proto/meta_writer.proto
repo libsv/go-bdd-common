@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "bitbucket.stressedsharks.com/plat/proto";
+
+import "void.proto";
+
+service MetaWriter {
+  // Writes data in the Metanet structure at a specific path and returns the TxID once it has been written.
+  rpc MetaWrite (MetaWriteRequest) returns (MetaWriteResponse) {}
+  // Writes data in the Metanet structure at a specific path.
+  rpc MetaWriteAsync (MetaWriteRequest) returns (Void) {}
+}
+
+message MetaWriteRequest {
+  string path = 1;            // The path to use.
+  bytes data = 2;             // The data to write to the metanet.
+  bool encrypt_structure = 3; // Optionally, settings this to true will force the metanet structure to be encrypted.
+}
+
+message MetaWriteResponse {
+  string txid = 1; // The transaction ID of the transaction that was successfully written to the bitcoin node.
+}

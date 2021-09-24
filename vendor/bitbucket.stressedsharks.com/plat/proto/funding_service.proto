@@ -1,0 +1,90 @@
+syntax = "proto3";
+package proto;
+
+option go_package = "bitbucket.stressedsharks.com/plat/proto";
+
+import "fund.proto";
+import "payment.proto";
+import "key_context.proto";
+import "broadcaster.proto";
+
+/**
+The <b>Funding Service</b> is a gateway to a database that holds all spent and unspent transaction outputs that are part of this eco-system.  Initially, funds are added to the database after they have been submitted to the blockchain, and clients of this service can reserve funds for use in their transactions.
+These reservations are marked as used when the Broadcaster has sent the spending transaction to the blockchain.  Unused reservations will expire and are then available for re-use.
+*/
+service FundingService {
+  // Get the available balance for the requested key.
+  rpc GetBalance (GetBalanceRequest) returns (GetBalanceResponse) {}
+  
+  // Add single fund to the funding service database.
+  rpc AddFund (AddFundRequest) returns (AddFundResponse) {}
+
+  // Request and reserve one or more funds to cover the cost of a transaction.
+  rpc GetFunds (GetFundsRequest) returns (GetFundsResponse) {}
+
+  // Spend the funds you previously requested (this will settle/broadcast them to the bloockchain).
+  rpc SpendFunds (SpendFundsRequest) returns (SpendFundsResponse) {}
+
+  // Add funds and split the UTXO (Unspent Transaction Output).
+  rpc AddAndSplitFund (AddAndSplitFundRequest) returns (AddAndSplitFundResponse) {}
+
+}
+
+// An empty request
+message GetBalanceRequest {
+  KeyContext key_context = 1;
+}
+
+message GetBalanceResponse {
+  int64 balance = 1;
+}
+
+message AddFundRequest {
+  Fund fund = 1;
+}
+
+// An empty response
+message AddFundResponse {}
+
+message GetFundsRequest {
+  uint64 output_value = 1; // The amount of money (in satoshis) to be spent in the target transaction.
+  uint64 data_bytes = 2; // The length (in bytes) of the data (OP_RETURN) part(s) in the target transaction.
+  uint64 total_p2pkh_outputs = 3; // The total number of P2PKH outputs in the target transaction.
+  uint64 total_data_outputs = 4; // The total number of data (OP_RETURN) outputs in the target transaction.
+  uint64 min_p2pkh_inputs = 5; // The minimum number of P2PKH inputs in the target transaction.
+  KeyContext key_context = 6; // The override alias we want to get the funds for
+}
+
+message GetFundsResponse {
+  repeated Fund funds = 1; // A list of funds.
+  Payment change = 2; // A Payment type (address + satoshis) to be used to send the change left over back to.
+  uint64 std_fee_paid = 3; // The fees paid for the standard fee type.
+  uint64 data_fee_paid = 4; // The fees paid for the data fee type.
+}
+
+message SpendFundsRequest {
+  bytes tx = 1; // This is an array of bytes containing the bitcoin transaction itself.
+}
+
+message SpendFundsResponse {
+  string txid = 1; // The transaction ID of the transaction that was successfully written to the bitcoin node.
+  TransactionStatus status = 2; // The status of the tx submitted in the broadcast request
+}
+
+message AddAndSplitFundRequest {
+  string txid = 1 [deprecated = true]; // The txid of the tx containing the fund to split.
+  uint64 denomination = 2; // The size of the split transactions (satoshis). A default setting will be used if not provided.
+  uint32 index = 3; // Optional. Index on which the fund is going to be split. Default: 0
+  bool hasIndex = 4; // if true we will get the output by index, otherwise we fall back to a keycontext address lookup
+  KeyContext key_context = 5; // Optional. If supplied and hasIndex is false we will read an address using keycontext, otherwise it will be checked from config.
+  string tx_hex = 6; // The tx containing the fund to split. Required except on regtest environment.
+}
+
+message AddAndSplitFundResponse {
+  uint32 transaction_count = 1;
+  uint32 output_count = 2;
+  uint64 total_value = 3;
+  string change_txid = 4;
+  uint64 change_value = 5;
+  repeated string warnings = 6;
+}
