@@ -13,8 +13,6 @@ github.com/containerd/containerd/log
 github.com/containerd/containerd/platforms
 # github.com/cucumber/gherkin-go/v11 v11.0.0
 github.com/cucumber/gherkin-go/v11
-# github.com/cucumber/gherkin-go/v19 v19.0.3
-## explicit
 # github.com/cucumber/godog v0.11.0
 ## explicit
 github.com/cucumber/godog
@@ -30,8 +28,6 @@ github.com/cucumber/godog/internal/tags
 github.com/cucumber/godog/internal/utils
 # github.com/cucumber/messages-go/v10 v10.0.3
 github.com/cucumber/messages-go/v10
-# github.com/cucumber/messages-go/v16 v16.0.1
-## explicit
 # github.com/docker/distribution v2.7.1+incompatible
 github.com/docker/distribution/digestset
 github.com/docker/distribution/reference
@@ -68,6 +64,7 @@ github.com/dustin/go-humanize
 # github.com/fatih/color v1.7.0
 github.com/fatih/color
 # github.com/gofrs/uuid v4.0.0+incompatible
+## explicit
 github.com/gofrs/uuid
 # github.com/gogo/protobuf v1.3.2
 github.com/gogo/protobuf/io
@@ -126,7 +123,7 @@ github.com/libsv/go-bk/bec
 github.com/libsv/go-bk/chaincfg
 github.com/libsv/go-bk/crypto
 github.com/libsv/go-bk/wif
-# github.com/libsv/go-bt/v2 v2.1.0-beta
+# github.com/libsv/go-bt/v2 v2.0.0-beta.7
 ## explicit
 github.com/libsv/go-bt/v2
 github.com/libsv/go-bt/v2/bscript
