@@ -16,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"bitbucket.stressedsharks.com/plat/proto"
 	"github.com/cucumber/godog"
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/google/uuid"
@@ -273,13 +272,7 @@ func createAlias(ctx *Context, conn *grpc.ClientConn, alias string) error {
 
 	alias = out.String()
 
-	ctx.RequestData, err = json.Marshal(proto.CreateAliasRequest{
-		Alias: alias,
-	})
-	if err != nil {
-		return err
-	}
-
+	ctx.RequestData = []byte("{\"alias\":\" " + alias + "\"}")
 	ctx.GRPC = NewGRPCContext("proto.CryptoService/CreateAlias", conn)
 	if err = makeGRPCRequest(ctx, ""); err != nil {
 		return err
@@ -292,16 +285,7 @@ func createAlias(ctx *Context, conn *grpc.ClientConn, alias string) error {
 		}
 	}
 
-	ctx.RequestData, err = json.Marshal(proto.GetPublicKeyRequest{
-		KeyContext: &proto.KeyContext{
-			Alias: alias,
-			Path:  "0",
-		},
-	})
-	if err != nil {
-		return err
-	}
-
+	ctx.RequestData = []byte("{\"key_context\":{\"alias\":\"" + alias + "\",\"path\":\"0\"}}")
 	ctx.GRPC = NewGRPCContext("proto.CryptoService/GetPublicKey", conn)
 	if err = makeGRPCRequest(ctx, ""); err != nil {
 		return err

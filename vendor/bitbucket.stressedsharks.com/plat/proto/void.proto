@@ -1,8 +1,0 @@
-syntax = "proto3";
-
-package proto;
-
-option go_package = "bitbucket.stressedsharks.com/plat/proto";
-
-// An empty response
-message Void {}

@@ -3,7 +3,6 @@ module github.com/libsv/go-bdd-common
 go 1.16
 
 require (
-	bitbucket.stressedsharks.com/plat/proto v1.2.4
 	github.com/Microsoft/go-winio v0.5.0 // indirect
 	github.com/containerd/containerd v1.5.5 // indirect
 	github.com/cucumber/godog v0.11.0
