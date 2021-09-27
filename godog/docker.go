@@ -10,8 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
-	"bitbucket.stressedsharks.com/plat/common/retry"
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
@@ -162,8 +162,19 @@ func (s *Suite) initReal() {
 		return
 	}
 
-	if err := retry.Run(context.Background(), kakfaReady, retry.WithAttempts(5)); err != nil {
-		log.Fatal(errors.Wrap(err, "waiting for kafka timed out"))
+	kkCtx := context.Background()
+	var kkErr error = nil
+	for i := 0; i < 5; i++ {
+		if e := kakfaReady(kkCtx); e != nil {
+			kkErr = e
+			break
+		}
+
+		time.Sleep(time.Second * 10)
+	}
+
+	if kkErr != nil {
+		log.Fatal(errors.Wrap(kkErr, "waiting for kafka timed out"))
 	}
 }
 
