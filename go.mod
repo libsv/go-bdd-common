@@ -5,14 +5,14 @@ go 1.16
 require (
 	github.com/Microsoft/go-winio v0.5.0 // indirect
 	github.com/containerd/containerd v1.5.5 // indirect
-	github.com/cucumber/godog v0.11.0
+	github.com/cucumber/godog v0.12.2
 	github.com/docker/docker v20.10.9+incompatible
 	github.com/docker/go-connections v0.4.0
-	github.com/gofrs/uuid v4.0.0+incompatible // indirect
 	github.com/golang/protobuf v1.5.2
 	github.com/google/uuid v1.3.0
 	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/jhump/protoreflect v1.10.1
+	github.com/kr/text v0.2.0 // indirect
 	github.com/lib/pq v1.10.3
 	github.com/libsv/go-bk v0.1.4
 	github.com/libsv/go-bt/v2 v2.0.0-beta.9

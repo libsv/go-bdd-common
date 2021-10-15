@@ -7,9 +7,9 @@ github.com/Microsoft/go-winio/pkg/guid
 github.com/containerd/containerd/errdefs
 github.com/containerd/containerd/log
 github.com/containerd/containerd/platforms
-# github.com/cucumber/gherkin-go/v11 v11.0.0
-github.com/cucumber/gherkin-go/v11
-# github.com/cucumber/godog v0.11.0
+# github.com/cucumber/gherkin-go/v19 v19.0.3
+github.com/cucumber/gherkin-go/v19
+# github.com/cucumber/godog v0.12.2
 ## explicit
 github.com/cucumber/godog
 github.com/cucumber/godog/colors
@@ -22,8 +22,8 @@ github.com/cucumber/godog/internal/parser
 github.com/cucumber/godog/internal/storage
 github.com/cucumber/godog/internal/tags
 github.com/cucumber/godog/internal/utils
-# github.com/cucumber/messages-go/v10 v10.0.3
-github.com/cucumber/messages-go/v10
+# github.com/cucumber/messages-go/v16 v16.0.1
+github.com/cucumber/messages-go/v16
 # github.com/docker/distribution v2.7.1+incompatible
 github.com/docker/distribution/digestset
 github.com/docker/distribution/reference
@@ -60,10 +60,8 @@ github.com/dustin/go-humanize
 # github.com/fatih/color v1.7.0
 github.com/fatih/color
 # github.com/gofrs/uuid v4.0.0+incompatible
-## explicit
 github.com/gofrs/uuid
 # github.com/gogo/protobuf v1.3.2
-github.com/gogo/protobuf/io
 github.com/gogo/protobuf/proto
 # github.com/golang/protobuf v1.5.2
 ## explicit
@@ -109,6 +107,8 @@ github.com/klauspost/compress/zstd
 github.com/klauspost/compress/zstd/internal/xxhash
 # github.com/klauspost/cpuid v1.3.1
 github.com/klauspost/cpuid
+# github.com/kr/text v0.2.0
+## explicit
 # github.com/lib/pq v1.10.3
 ## explicit
 github.com/lib/pq
