@@ -31,6 +31,7 @@ func (c *Context) AttachTemplater(name string) {
 	).Funcs(template.FuncMap{
 		"base64Encode":   base64Encode,
 		"sub":            subtract,
+		"workingTxID":    workingTxID(c),
 		"workingTxHex":   workingTxHex(c),
 		"workingTxBytes": workingTxBytes(c),
 	})

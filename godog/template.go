@@ -31,6 +31,12 @@ func workingTxHex(ctx *Context) func() (string, error) {
 	}
 }
 
+func workingTxID(ctx *Context) func() (string, error) {
+	return func() (string, error) {
+		return ctx.BTC.WorkingTX.TX.TxID(), nil
+	}
+}
+
 func workingTxBytes(ctx *Context) func() (string, error) {
 	return func() (string, error) {
 		return string(ctx.BTC.WorkingTX.TX.Bytes()), nil
