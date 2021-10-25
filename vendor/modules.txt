@@ -90,7 +90,7 @@ github.com/hashicorp/go-immutable-radix
 github.com/hashicorp/go-memdb
 # github.com/hashicorp/golang-lru v0.5.4
 github.com/hashicorp/golang-lru/simplelru
-# github.com/jhump/protoreflect v1.9.0
+# github.com/jhump/protoreflect v1.10.1
 ## explicit
 github.com/jhump/protoreflect/codec
 github.com/jhump/protoreflect/desc
