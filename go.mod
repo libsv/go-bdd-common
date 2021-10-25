@@ -10,7 +10,7 @@ require (
 	github.com/docker/go-connections v0.4.0
 	github.com/gofrs/uuid v4.0.0+incompatible // indirect
 	github.com/golang/protobuf v1.5.2
-	github.com/google/uuid v1.2.0
+	github.com/google/uuid v1.3.0
 	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/jhump/protoreflect v1.9.0
 	github.com/lib/pq v1.10.3
