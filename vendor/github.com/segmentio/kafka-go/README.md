@@ -32,7 +32,7 @@ software.
 
 #### Note:
 
-In order to better align  with our newly adopted Code of Contact, the kafka-go project has renamed our default branch to `main`.  
+In order to better align with our newly adopted Code of Conduct, the kafka-go project has renamed our default branch to `main`.  
 For the full details of our Code Of Conduct see [this](./CODE_OF_CONDUCT.md) document.
 
 ## Migrating to 0.4
@@ -71,7 +71,7 @@ some features available from the Kafka API may not be implemented yet.
 
 ## Golang version
 
-`kafka-go` is currently compatible with golang version from 1.13+. To use with older versions of golang use release [v0.2.5](https://github.com/segmentio/kafka-go/releases/tag/v0.2.5).
+`kafka-go` is currently compatible with golang version from 1.15+. To use with older versions of golang use release [v0.2.5](https://github.com/segmentio/kafka-go/releases/tag/v0.2.5).
 
 ## Connection [![GoDoc](https://godoc.org/github.com/segmentio/kafka-go?status.svg)](https://godoc.org/github.com/segmentio/kafka-go#Conn)
 
@@ -118,11 +118,11 @@ batch := conn.ReadBatch(10e3, 1e6) // fetch 10KB min, 1MB max
 
 b := make([]byte, 10e3) // 10KB max per message
 for {
-    _, err := batch.Read(b)
+    n, err := batch.Read(b)
     if err != nil {
         break
     }
-    fmt.Println(string(b))
+    fmt.Println(string(b[:n]))
 }
 
 if err := batch.Close(); err != nil {
