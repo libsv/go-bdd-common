@@ -2,20 +2,9 @@ package bt
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"sync"
 	"time"
-)
-
-// Sentinel errors reported by the fees.
-var (
-	ErrFeeQuotesNotInit = errors.New("feeQuotes have not been setup, call NewFeeQuotes")
-	ErrMinerNoQuotes    = errors.New("miner has no quotes stored")
-	ErrFeeTypeNotFound  = errors.New("feetype not found")
-	ErrFeeQuoteNotInit  = errors.New("feeQuote has not been initialised, call NewFeeQuote()")
-	ErrEmptyValues      = errors.New("empty value or values passed, all arguments are required and cannot be empty")
-	ErrUnknownFeeType   = "unknown feetype supplied '%s'"
 )
 
 // FeeType is used to specify which
@@ -34,7 +23,7 @@ const (
 
 // FeeQuotes contains a list of miners and the current fees for each miner as well as their expiry.
 //
-// This can be used when getting fees from multiple miners and you want to use the cheapest for example.
+// This can be used when getting fees from multiple miners, and you want to use the cheapest for example.
 //
 // Usage setup should be calling NewFeeQuotes(minerName).
 type FeeQuotes struct {
@@ -42,7 +31,7 @@ type FeeQuotes struct {
 	quotes map[string]*FeeQuote
 }
 
-// NewFeeQuotes will setup default feeQuotes for the minerName supplied, ie TAAL etc.
+// NewFeeQuotes will set up default feeQuotes for the minerName supplied, ie TAAL etc.
 func NewFeeQuotes(minerName string) *FeeQuotes {
 	return &FeeQuotes{
 		mu:     sync.RWMutex{},
@@ -104,7 +93,7 @@ func (f *FeeQuotes) UpdateMinerFees(minerName string, feeType FeeType, fee *Fee)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if minerName == "" || feeType == "" || fee == nil {
-		return nil, errors.New("empty value or values passed, all arguments are required and cannot be empty")
+		return nil, ErrEmptyValues
 	}
 	m := f.quotes[minerName]
 	if m == nil {
@@ -133,7 +122,7 @@ type FeeQuote struct {
 	expiryTime time.Time
 }
 
-// NewFeeQuote will setup and return a new FeeQuotes struct which
+// NewFeeQuote will set up and return a new FeeQuotes struct which
 // contains default fees when initially setup. You would then pass this
 // data structure to a singleton struct via injection for reading.
 // If you are only getting quotes from one miner you can use this directly
@@ -266,7 +255,7 @@ func (f *FeeQuote) UnmarshalJSON(body []byte) error {
 	}
 	for k, v := range fees {
 		if k != FeeTypeData && k != FeeTypeStandard {
-			return fmt.Errorf(ErrUnknownFeeType, k)
+			return fmt.Errorf("%w '%s'", ErrUnknownFeeType, k)
 		}
 		v.FeeType = k
 	}

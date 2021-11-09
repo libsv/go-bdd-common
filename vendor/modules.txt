@@ -118,10 +118,11 @@ github.com/lib/pq/scram
 ## explicit
 github.com/libsv/go-bk/base58
 github.com/libsv/go-bk/bec
+github.com/libsv/go-bk/bip32
 github.com/libsv/go-bk/chaincfg
 github.com/libsv/go-bk/crypto
 github.com/libsv/go-bk/wif
-# github.com/libsv/go-bt/v2 v2.0.0-beta.7
+# github.com/libsv/go-bt/v2 v2.0.0-beta.10
 ## explicit
 github.com/libsv/go-bt/v2
 github.com/libsv/go-bt/v2/bscript

@@ -15,7 +15,7 @@ require (
 	github.com/jhump/protoreflect v1.9.0
 	github.com/lib/pq v1.10.3
 	github.com/libsv/go-bk v0.1.4
-	github.com/libsv/go-bt/v2 v2.0.0-beta.7
+	github.com/libsv/go-bt/v2 v2.0.0-beta.10
 	github.com/minio/minio-go/v7 v7.0.14
 	github.com/moby/term v0.0.0-20210619224110-3f7ff695adc6 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
