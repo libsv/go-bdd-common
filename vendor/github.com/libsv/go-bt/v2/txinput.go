@@ -5,16 +5,13 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
-	"errors"
 	"fmt"
 
 	"github.com/libsv/go-bk/crypto"
+	"github.com/pkg/errors"
 
 	"github.com/libsv/go-bt/v2/bscript"
 )
-
-// ErrNoUTXO signals the UTXOGetterFunc has reached the end of its input.
-var ErrNoUTXO = errors.New("no remaining utxos")
 
 // UTXOGetterFunc is used for tx.Fund(...). It provides the amount of satoshis required
 // for funding as `deficit`, and expects []*bt.UTXO to be returned containing
@@ -25,10 +22,10 @@ var ErrNoUTXO = errors.New("no remaining utxos")
 // It is expected that bt.ErrNoUTXO will be returned once the utxo source is depleted.
 type UTXOGetterFunc func(ctx context.Context, deficit uint64) ([]*UTXO, error)
 
-// NewInputFromBytes returns a transaction input from the bytes provided.
-func NewInputFromBytes(bytes []byte) (*Input, int, error) {
+// newInputFromBytes returns a transaction input from the bytes provided.
+func newInputFromBytes(bytes []byte) (*Input, int, error) {
 	if len(bytes) < 36 {
-		return nil, 0, fmt.Errorf("input length too short < 36")
+		return nil, 0, fmt.Errorf("%w < 36", ErrInputTooShort)
 	}
 
 	offset := 36
@@ -38,7 +35,7 @@ func NewInputFromBytes(bytes []byte) (*Input, int, error) {
 	totalLength := offset + int(l) + 4 // 4 bytes for nSeq
 
 	if len(bytes) < totalLength {
-		return nil, 0, fmt.Errorf("input length too short < 36 + script + 4")
+		return nil, 0, fmt.Errorf("%w < 36 + script + 4", ErrInputTooShort)
 	}
 
 	return &Input{
@@ -133,11 +130,13 @@ func (tx *Tx) FromUTXOs(utxos ...*UTXO) error {
 // as an input via tx.From(...), until it is estimated that inputs cover the outputs + fees.
 //
 // After completion, the receiver is ready for `Change(...)` to be called, and then be signed.
-// Note, this function works under the assumption that receiver *bt.Tx alread has all the outputs
+// Note, this function works under the assumption that receiver *bt.Tx already has all the outputs
 // which need covered.
 //
-// Example usage, for when working with a list:
-//    tx.Fund(ctx, bt.NewFeeQuote(), func(ctx context.Context, deficit satoshis) ([]*bt.UTXO, error) {
+// If insufficient utxos are provided from the UTXOGetterFunc, a bt.ErrInsufficientFunds is returned.
+//
+// Example usage:
+//    if err := tx.Fund(ctx, bt.NewFeeQuote(), func(ctx context.Context, deficit satoshis) ([]*bt.UTXO, error) {
 //        utxos := make([]*bt.UTXO, 0)
 //        for _, f := range funds {
 //            deficit -= satoshis
@@ -152,7 +151,10 @@ func (tx *Tx) FromUTXOs(utxos ...*UTXO) error {
 //            }
 //        }
 //        return nil, bt.ErrNoUTXO
-//    })
+//    }); err != nil {
+//        if errors.Is(err, bt.ErrInsufficientFunds) { /* handle */ }
+//        return err
+//    }
 func (tx *Tx) Fund(ctx context.Context, fq *FeeQuote, next UTXOGetterFunc) error {
 	deficit, err := tx.estimateDeficit(fq)
 	if err != nil {
@@ -168,10 +170,8 @@ func (tx *Tx) Fund(ctx context.Context, fq *FeeQuote, next UTXOGetterFunc) error
 			return err
 		}
 
-		for _, utxo := range utxos {
-			if err = tx.FromUTXOs(utxo); err != nil {
-				return err
-			}
+		if err = tx.FromUTXOs(utxos...); err != nil {
+			return err
 		}
 
 		deficit, err = tx.estimateDeficit(fq)
@@ -180,7 +180,7 @@ func (tx *Tx) Fund(ctx context.Context, fq *FeeQuote, next UTXOGetterFunc) error
 		}
 	}
 	if deficit != 0 {
-		return errors.New("insufficient utxos provided")
+		return ErrInsufficientFunds
 	}
 
 	return nil
