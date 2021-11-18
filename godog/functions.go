@@ -264,7 +264,6 @@ func createAlias(ctx *Context, conn *grpc.ClientConn, alias string) error {
 	if err != nil {
 		return err
 	}
-
 	var out bytes.Buffer
 	if err = tmpl.Execute(&out, ctx.TemplateVars); err != nil {
 		return err

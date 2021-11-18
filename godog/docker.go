@@ -30,7 +30,7 @@ type Env struct {
 	Real []string
 	// Mocks a list of services to be mocked
 	Mocks []string
-	Vars []string
+	Vars  []string
 }
 
 func (s *Suite) initEnv() {
