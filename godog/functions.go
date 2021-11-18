@@ -272,7 +272,7 @@ func createAlias(ctx *Context, conn *grpc.ClientConn, alias string) error {
 
 	alias = out.String()
 
-	ctx.RequestData = []byte("{\"alias\":\" " + alias + "\"}")
+	ctx.RequestData = []byte(`{"alias":"` + alias + `"}`)
 	ctx.GRPC = NewGRPCContext("proto.CryptoService/CreateAlias", conn)
 	if err = makeGRPCRequest(ctx, ""); err != nil {
 		return err

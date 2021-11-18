@@ -30,12 +30,15 @@ type Env struct {
 	Real []string
 	// Mocks a list of services to be mocked
 	Mocks []string
+	Vars []string
 }
 
 func (s *Suite) initEnv() {
 	s.takeSnapshot()
-
+	vars := []string{"S3_ENDPOINT=http://s3:9000", "ENV_ENVIRONMENT=local"}
 	env := s.initDeps()
+	s.env.Vars = append(s.env.Vars, vars...)
+	s.env.Vars = append(s.env.Vars, env...)
 
 	// Init test container
 	cont, err := s.dc.ContainerCreate(
@@ -48,7 +51,7 @@ func (s *Suite) initEnv() {
 			ExposedPorts: nat.PortSet{
 				nat.Port(s.servicePort[1:]): {},
 			},
-			Env: append(env, "S3_ENDPOINT=http://s3:9000", "ENV_ENVIRONMENT=local"),
+			Env: s.env.Vars,
 		},
 		&container.HostConfig{
 			AutoRemove:  true,
@@ -66,7 +69,6 @@ func (s *Suite) initEnv() {
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	if err = s.dc.ContainerStart(context.Background(), cont.ID, types.ContainerStartOptions{}); err != nil {
 		log.Fatal(err)
 	}
