@@ -1,0 +1,15 @@
+debug
+.history
+.idea/*
+.DS_Store
+build/
+dist/
+cover.go
+cover.out
+
+main
+cover.out
+cover.html
+
+*.swp
+run
