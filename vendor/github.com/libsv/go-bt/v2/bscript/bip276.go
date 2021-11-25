@@ -2,7 +2,6 @@ package bscript
 
 import (
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -10,7 +9,7 @@ import (
 	"github.com/libsv/go-bk/crypto"
 )
 
-// BIP276 proposes a scheme for encoding typed bitcoin related data in a user friendly way
+// BIP276 proposes a scheme for encoding typed bitcoin related data in a user-friendly way
 // see https://github.com/moneybutton/bips/blob/master/bip-0276.mediawiki
 type BIP276 struct {
 	Prefix  string
@@ -68,7 +67,7 @@ func DecodeBIP276(text string) (*BIP276, error) {
 
 	// Check if we got a result from the regex match first
 	if len(res) == 0 {
-		return nil, fmt.Errorf("text did not match the BIP276 format")
+		return nil, ErrTextNoBIP76
 	}
 	s := BIP276{
 		Prefix: res[1],
@@ -90,7 +89,7 @@ func DecodeBIP276(text string) (*BIP276, error) {
 	}
 	s.Data = data
 	if _, checkSum := createBIP276(s); res[5] != checkSum {
-		return nil, errors.New("invalid checksum")
+		return nil, ErrEncodingInvalidChecksum
 	}
 
 	return &s, nil

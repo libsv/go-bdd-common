@@ -4,11 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
-	"errors"
-	"fmt"
 
 	"github.com/libsv/go-bk/crypto"
+
 	"github.com/libsv/go-bt/v2/bscript"
 )
 
@@ -34,11 +32,6 @@ lock_time        if non-zero and sequence numbers are < 0xFFFFFFFF: block height
 --------------------------------------------------------
 */
 
-// Sentinel errors for transactions.
-var (
-	ErrInvalidTxID = errors.New("invalid TxID")
-)
-
 // Tx wraps a bitcoin transaction
 //
 // DO NOT CHANGE ORDER - Optimised memory via malign
@@ -50,63 +43,12 @@ type Tx struct {
 	LockTime uint32
 }
 
-type txJSON struct {
-	Version  uint32    `json:"version"`
-	LockTime uint32    `json:"locktime"`
-	TxID     string    `json:"txid"`
-	Hash     string    `json:"hash"`
-	Size     int       `json:"size"`
-	Hex      string    `json:"hex"`
-	Inputs   []*Input  `json:"vin"`
-	Outputs  []*Output `json:"vout"`
-}
-
-// MarshalJSON will serialise a transaction to json.
-func (tx *Tx) MarshalJSON() ([]byte, error) {
-	if tx == nil {
-		return nil, errors.New("tx is nil so cannot be marshalled")
-	}
-	for i, o := range tx.Outputs {
-		o.index = i
-	}
-	txj := txJSON{
-		Version:  tx.Version,
-		LockTime: tx.LockTime,
-		Inputs:   tx.Inputs,
-		Outputs:  tx.Outputs,
-		TxID:     tx.TxID(),
-		Hash:     tx.TxID(),
-		Size:     len(tx.Bytes()),
-		Hex:      tx.String(),
-	}
-	return json.Marshal(txj)
-}
-
-// UnmarshalJSON will unmarshall a transaction that has been marshalled with this library.
-func (tx *Tx) UnmarshalJSON(b []byte) error {
-	var txj txJSON
-	if err := json.Unmarshal(b, &txj); err != nil {
-		return err
-	}
-	// quick convert
-	if txj.Hex != "" {
-		t, err := NewTxFromString(txj.Hex)
-		if err != nil {
-			return err
-		}
-		*tx = *t
-		return nil
-	}
-	tx.Inputs = txj.Inputs
-	tx.Outputs = txj.Outputs
-	tx.LockTime = txj.LockTime
-	tx.Version = txj.Version
-	return nil
-}
+// Txs a collection of *bt.Tx.
+type Txs []*Tx
 
 // NewTx creates a new transaction object with default values.
 func NewTx() *Tx {
-	return &Tx{Version: 1, LockTime: 0}
+	return &Tx{Version: 1, LockTime: 0, Inputs: make([]*Input, 0)}
 }
 
 // NewTxFromString takes a toBytesHelper string representation of a bitcoin transaction
@@ -129,7 +71,7 @@ func NewTxFromBytes(b []byte) (*Tx, error) {
 	}
 
 	if used != len(b) {
-		return nil, fmt.Errorf("nLockTime length must be 4 bytes long")
+		return nil, ErrNLockTimeLength
 	}
 
 	return tx, nil
@@ -139,9 +81,8 @@ func NewTxFromBytes(b []byte) (*Tx, error) {
 // Despite the name, this is not actually reading a stream in the true sense: it is a byte slice that contains
 // many transactions one after another.
 func NewTxFromStream(b []byte) (*Tx, int, error) {
-
 	if len(b) < 10 {
-		return nil, 0, fmt.Errorf("too short to be a tx - even an empty tx has 10 bytes")
+		return nil, 0, ErrTxTooShort
 	}
 
 	var offset int
@@ -158,7 +99,7 @@ func NewTxFromStream(b []byte) (*Tx, int, error) {
 	var err error
 	var input *Input
 	for ; i < inputCount; i++ {
-		input, size, err = NewInputFromBytes(b[offset:])
+		input, size, err = newInputFromBytes(b[offset:])
 		if err != nil {
 			return nil, 0, err
 		}
@@ -172,11 +113,10 @@ func NewTxFromStream(b []byte) (*Tx, int, error) {
 	outputCount, size = DecodeVarInt(b[offset:])
 	offset += size
 	for i = 0; i < outputCount; i++ {
-		output, size, err = NewOutputFromBytes(b[offset:])
+		output, size, err = newOutputFromBytes(b[offset:])
 		if err != nil {
 			return nil, 0, err
 		}
-		output.index = int(i)
 		offset += size
 		t.AddOutput(output)
 	}
@@ -289,6 +229,30 @@ func (tx *Tx) Clone() *Tx {
 	return clone
 }
 
+// NodeJSON returns a wrapped *bt.Tx for marshalling/unmarshalling into a node tx format.
+//
+// Marshalling usage example:
+//  bb, err := json.Marshal(tx.NodeJSON())
+//
+// Unmarshalling usage example:
+//  tx := bt.NewTx()
+//  if err := json.Unmarshal(bb, tx.NodeJSON()); err != nil {}
+func (tx *Tx) NodeJSON() interface{} {
+	return &nodeTxWrapper{Tx: tx}
+}
+
+// NodeJSON returns a wrapped bt.Txs for marshalling/unmarshalling into a node tx format.
+//
+// Marshalling usage example:
+//  bb, err := json.Marshal(txs.NodeJSON())
+//
+// Unmarshalling usage example:
+//  var txs bt.Txs
+//  if err := json.Unmarshal(bb, txs.NodeJSON()); err != nil {}
+func (tt *Txs) NodeJSON() interface{} {
+	return (*nodeTxsWrapper)(tt)
+}
+
 func (tx *Tx) toBytesHelper(index int, lockingScript []byte) []byte {
 	h := make([]byte, 0)
 
@@ -383,7 +347,7 @@ func (tx *Tx) estimatedFinalTx() (*Tx, error) {
 
 	for _, in := range tempTx.Inputs {
 		if !in.PreviousTxScript.IsP2PKH() {
-			return nil, errors.New("non-P2PKH input used in the tx - unsupported")
+			return nil, ErrUnsupportedScript
 		}
 		if in.UnlockingScript == nil || len(*in.UnlockingScript) == 0 {
 			// nolint:lll // insert dummy p2pkh unlocking script (sig + pubkey)
