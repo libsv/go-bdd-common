@@ -2,20 +2,15 @@ package bscript
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
-	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/libsv/go-bk/bec"
+	"github.com/libsv/go-bk/bip32"
 	"github.com/libsv/go-bk/crypto"
-)
-
-// Sentinel errors raised by the package.
-var (
-	ErrInvalidPKLen  = errors.New("invalid public key length")
-	ErrInvalidOpCode = errors.New("invalid opcode data")
-	ErrEmptyScript   = errors.New("script is empty")
-	ErrNotP2PKH      = errors.New("not a P2PKH")
 )
 
 // ScriptKey types.
@@ -23,6 +18,8 @@ const (
 	ScriptTypePubKey      = "pubkey"
 	ScriptTypePubKeyHash  = "pubkeyhash"
 	ScriptTypeNonStandard = "nonstandard"
+	ScriptTypeEmpty       = "empty"
+	ScriptTypeSecureHash  = "securehash"
 	ScriptTypeMultiSig    = "multisig"
 	ScriptTypeNullData    = "nulldata"
 )
@@ -139,6 +136,28 @@ func NewP2PKHFromAddress(addr string) (*Script, error) {
 	return s, nil
 }
 
+// NewP2PKHFromBip32ExtKey takes a *bip32.ExtendedKey and creates a P2PKH script from it,
+// using an internally random generated seed, returning the script and derivation path used.
+func NewP2PKHFromBip32ExtKey(privKey *bip32.ExtendedKey) (*Script, string, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return nil, "", err
+	}
+
+	derivationPath := bip32.DerivePath(binary.LittleEndian.Uint64(b[:]))
+	pubKey, err := privKey.DerivePublicKeyFromPath(derivationPath)
+	if err != nil {
+		return nil, "", err
+	}
+
+	lockingScript, err := NewP2PKHFromPubKeyBytes(pubKey)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return lockingScript, derivationPath, nil
+}
+
 // AppendPushData takes data bytes and appends them to the script
 // with proper PUSHDATA prefixes
 func (s *Script) AppendPushData(d []byte) error {
@@ -182,9 +201,9 @@ func (s *Script) AppendPushDataArray(d [][]byte) error {
 
 // AppendPushDataStrings takes an array of strings and appends their
 // UTF-8 encoding to the script with proper PUSHDATA prefixes
-func (s *Script) AppendPushDataStrings(strs []string) error {
+func (s *Script) AppendPushDataStrings(pushDataStrings []string) error {
 	dataBytes := make([][]byte, 0)
-	for _, str := range strs {
+	for _, str := range pushDataStrings {
 		strBytes := []byte(str)
 		dataBytes = append(dataBytes, strBytes)
 	}
@@ -270,8 +289,8 @@ func (s *Script) IsP2SH() bool {
 func (s *Script) IsData() bool {
 	b := []byte(*s)
 
-	return b[0] == OpRETURN ||
-		b[0] == OpFALSE && b[1] == OpRETURN
+	return (len(b) > 0 && b[0] == OpRETURN) ||
+		(len(b) > 1 && b[0] == OpFALSE && b[1] == OpRETURN)
 }
 
 // IsMultiSigOut returns true if this is a multisig output script.
@@ -323,6 +342,9 @@ func (s *Script) PublicKeyHash() ([]byte, error) {
 
 // ScriptType returns the type of script this is as a string.
 func (s *Script) ScriptType() string {
+	if len(*s) == 0 {
+		return ScriptTypeEmpty
+	}
 	if s.IsP2PKH() {
 		return ScriptTypePubKeyHash
 	}
@@ -372,4 +394,20 @@ func (s *Script) EqualsBytes(b []byte) bool {
 // if they match then true is returned otherwise false.
 func (s *Script) EqualsHex(h string) bool {
 	return s.String() == h
+}
+
+// MarshalJSON convert script into json.
+func (s *Script) MarshalJSON() ([]byte, error) {
+	return []byte(fmt.Sprintf(`"%s"`, s.String())), nil
+}
+
+// UnmarshalJSON covert from json into *bscript.Script.
+func (s *Script) UnmarshalJSON(bb []byte) error {
+	ss, err := NewFromHexString(string(bytes.Trim(bb, `"`)))
+	if err != nil {
+		return err
+	}
+
+	*s = *ss
+	return nil
 }
