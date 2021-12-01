@@ -42,22 +42,22 @@ const (
 	ServiceTypeSTS = "sts"
 )
 
-//
-// Excerpts from @lsegal -
-// https:/github.com/aws/aws-sdk-js/issues/659#issuecomment-120477258.
-//
-//  User-Agent:
-//
-//      This is ignored from signing because signing this causes
-//      problems with generating pre-signed URLs (that are executed
-//      by other agents) or when customers pass requests through
-//      proxies, which may modify the user-agent.
-//
-//
-//  Authorization:
-//
-//      Is skipped for obvious reasons
-//
+///
+/// Excerpts from @lsegal -
+/// https://github.com/aws/aws-sdk-js/issues/659#issuecomment-120477258.
+///
+///  User-Agent:
+///
+///      This is ignored from signing because signing this causes
+///      problems with generating pre-signed URLs (that are executed
+///      by other agents) or when customers pass requests through
+///      proxies, which may modify the user-agent.
+///
+///
+///  Authorization:
+///
+///      Is skipped for obvious reasons
+///
 var v4IgnoredHeaders = map[string]bool{
 	"Authorization": true,
 	"User-Agent":    true,
@@ -118,9 +118,7 @@ func getCanonicalHeaders(req http.Request, ignoredHeaders map[string]bool) strin
 		headers = append(headers, strings.ToLower(k))
 		vals[strings.ToLower(k)] = vv
 	}
-	if !headerExists("host", headers) {
-		headers = append(headers, "host")
-	}
+	headers = append(headers, "host")
 	sort.Strings(headers)
 
 	var buf bytes.Buffer
@@ -132,7 +130,7 @@ func getCanonicalHeaders(req http.Request, ignoredHeaders map[string]bool) strin
 		switch {
 		case k == "host":
 			buf.WriteString(getHostAddr(&req))
-			buf.WriteByte('\n')
+			fallthrough
 		default:
 			for idx, v := range vals[k] {
 				if idx > 0 {
@@ -146,15 +144,6 @@ func getCanonicalHeaders(req http.Request, ignoredHeaders map[string]bool) strin
 	return buf.String()
 }
 
-func headerExists(key string, headers []string) bool {
-	for _, k := range headers {
-		if k == key {
-			return true
-		}
-	}
-	return false
-}
-
 // getSignedHeaders generate all signed request headers.
 // i.e lexically sorted, semicolon-separated list of lowercase
 // request header names.
@@ -166,9 +155,7 @@ func getSignedHeaders(req http.Request, ignoredHeaders map[string]bool) string {
 		}
 		headers = append(headers, strings.ToLower(k))
 	}
-	if !headerExists("host", headers) {
-		headers = append(headers, "host")
-	}
+	headers = append(headers, "host")
 	sort.Strings(headers)
 	return strings.Join(headers, ";")
 }
@@ -183,7 +170,7 @@ func getSignedHeaders(req http.Request, ignoredHeaders map[string]bool) string {
 //  <SignedHeaders>\n
 //  <HashedPayload>
 func getCanonicalRequest(req http.Request, ignoredHeaders map[string]bool, hashedPayload string) string {
-	req.URL.RawQuery = strings.ReplaceAll(req.URL.Query().Encode(), "+", "%20")
+	req.URL.RawQuery = strings.Replace(req.URL.Query().Encode(), "+", "%20", -1)
 	canonicalRequest := strings.Join([]string{
 		req.Method,
 		s3utils.EncodePath(req.URL.Path),
@@ -199,7 +186,7 @@ func getCanonicalRequest(req http.Request, ignoredHeaders map[string]bool, hashe
 func getStringToSignV4(t time.Time, location, canonicalRequest, serviceType string) string {
 	stringToSign := signV4Algorithm + "\n" + t.Format(iso8601DateFormat) + "\n"
 	stringToSign = stringToSign + getScope(location, t, serviceType) + "\n"
-	stringToSign += hex.EncodeToString(sum256([]byte(canonicalRequest)))
+	stringToSign = stringToSign + hex.EncodeToString(sum256([]byte(canonicalRequest)))
 	return stringToSign
 }
 

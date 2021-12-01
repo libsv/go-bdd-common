@@ -616,7 +616,7 @@ func IUseTheOutputsOfTransactionAsInputs(ctx *Context) func(int) error {
 
 func TheTransactionIsSignedByAccount(ctx *Context) func(int) error {
 	return func(n int) error {
-		if err := ctx.BTC.WorkingTX.TX.SignAll(context.Background(), &bt.LocalSignerGetter{
+		if err := ctx.BTC.WorkingTX.TX.UnlockAll(context.Background(), &bt.LocalUnlockerGetter{
 			PrivateKey: ctx.BTC.Accounts[n].WIF.PrivKey,
 		}); err != nil {
 			return err

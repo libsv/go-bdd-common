@@ -171,7 +171,6 @@ func IsAmazonFIPSGovCloudEndpoint(endpointURL url.URL) bool {
 		return false
 	}
 	return endpointURL.Host == "s3-fips-us-gov-west-1.amazonaws.com" ||
-		endpointURL.Host == "s3-fips.us-gov-west-1.amazonaws.com" ||
 		endpointURL.Host == "s3-fips.dualstack.us-gov-west-1.amazonaws.com"
 }
 
@@ -212,7 +211,7 @@ func IsGoogleEndpoint(endpointURL url.URL) bool {
 
 // Expects ascii encoded strings - from output of urlEncodePath
 func percentEncodeSlash(s string) string {
-	return strings.ReplaceAll(s, "/", "%2F")
+	return strings.Replace(s, "/", "%2F", -1)
 }
 
 // QueryEncode - encodes query values in their URL encoded form. In

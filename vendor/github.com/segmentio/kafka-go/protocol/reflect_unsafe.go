@@ -1,4 +1,3 @@
-//go:build unsafe
 // +build unsafe
 
 package protocol
