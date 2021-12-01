@@ -78,9 +78,9 @@ type STSWebIdentity struct {
 	// This is a customer provided function and is mandatory.
 	GetWebIDTokenExpiry func() (*WebIdentityToken, error)
 
-	// RoleARN is the Amazon Resource Name (ARN) of the role that the caller is
+	// roleARN is the Amazon Resource Name (ARN) of the role that the caller is
 	// assuming.
-	RoleARN string
+	roleARN string
 
 	// roleSessionName is the identifier for the assumed role session.
 	roleSessionName string
@@ -164,7 +164,7 @@ func getWebIdentityCredentials(clnt *http.Client, endpoint, roleARN, roleSession
 // Retrieve retrieves credentials from the MinIO service.
 // Error will be returned if the request fails.
 func (m *STSWebIdentity) Retrieve() (Value, error) {
-	a, err := getWebIdentityCredentials(m.Client, m.STSEndpoint, m.RoleARN, m.roleSessionName, m.GetWebIDTokenExpiry)
+	a, err := getWebIdentityCredentials(m.Client, m.STSEndpoint, m.roleARN, m.roleSessionName, m.GetWebIDTokenExpiry)
 	if err != nil {
 		return Value{}, err
 	}
