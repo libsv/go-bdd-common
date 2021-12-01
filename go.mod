@@ -13,8 +13,8 @@ require (
 	github.com/google/uuid v1.2.0
 	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/jhump/protoreflect v1.9.0
-	github.com/lib/pq v1.10.3
-	github.com/libsv/go-bk v0.1.4
+	github.com/lib/pq v1.10.4
+	github.com/libsv/go-bk v0.1.5
 	github.com/libsv/go-bt/v2 v2.0.0-beta.7
 	github.com/minio/minio-go/v7 v7.0.14
 	github.com/moby/term v0.0.0-20210619224110-3f7ff695adc6 // indirect
@@ -25,6 +25,6 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/toorop/go-bitcoind v0.0.0-20201025081558-87ada228a807
 	github.com/yazgazan/jaydiff v0.3.1
-	google.golang.org/grpc v1.40.0
+	google.golang.org/grpc v1.42.0
 	gopkg.in/yaml.v2 v2.4.0
 )
