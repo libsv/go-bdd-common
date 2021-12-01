@@ -177,7 +177,7 @@ github.com/pierrec/lz4/internal/xxh32
 github.com/pkg/errors
 # github.com/rs/xid v1.2.1
 github.com/rs/xid
-# github.com/segmentio/kafka-go v0.4.20
+# github.com/segmentio/kafka-go v0.4.25
 ## explicit
 github.com/segmentio/kafka-go
 github.com/segmentio/kafka-go/compress
