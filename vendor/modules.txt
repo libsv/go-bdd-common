@@ -114,7 +114,7 @@ github.com/klauspost/cpuid
 github.com/lib/pq
 github.com/lib/pq/oid
 github.com/lib/pq/scram
-# github.com/libsv/go-bk v0.1.5
+# github.com/libsv/go-bk v0.1.6
 ## explicit
 github.com/libsv/go-bk/base58
 github.com/libsv/go-bk/bec
