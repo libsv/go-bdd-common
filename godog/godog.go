@@ -175,8 +175,8 @@ func (s *Suite) initTestSuite(ctx *godog.TestSuiteContext) {
 				grpc.WithInsecure(),
 				grpc.WithBlock(),
 				grpc.WithKeepaliveParams(keepalive.ClientParameters{
-					Time:    10 * time.Second,
-					Timeout: 10 * time.Second,
+					Time:    31 * time.Second,
+					Timeout: 2 * time.Second,
 				}),
 			)
 			if err != nil {
