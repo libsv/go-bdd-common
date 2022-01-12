@@ -14,7 +14,7 @@ require (
 	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/jhump/protoreflect v1.9.0
 	github.com/lib/pq v1.10.3
-	github.com/libsv/go-bk v0.1.5
+	github.com/libsv/go-bk v0.1.6
 	github.com/libsv/go-bt/v2 v2.1.0-beta.1
 	github.com/minio/minio-go/v7 v7.0.14
 	github.com/moby/term v0.0.0-20210619224110-3f7ff695adc6 // indirect
