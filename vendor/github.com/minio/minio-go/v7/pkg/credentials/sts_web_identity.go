@@ -78,9 +78,9 @@ type STSWebIdentity struct {
 	// This is a customer provided function and is mandatory.
 	GetWebIDTokenExpiry func() (*WebIdentityToken, error)
 
-	// roleARN is the Amazon Resource Name (ARN) of the role that the caller is
+	// RoleARN is the Amazon Resource Name (ARN) of the role that the caller is
 	// assuming.
-	roleARN string
+	RoleARN string
 
 	// roleSessionName is the identifier for the assumed role session.
 	roleSessionName string
@@ -150,7 +150,14 @@ func getWebIdentityCredentials(clnt *http.Client, endpoint, roleARN, roleSession
 
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return AssumeRoleWithWebIdentityResponse{}, errors.New(resp.Status)
+		var errResp ErrorResponse
+		_, err = xmlDecodeAndBody(resp.Body, &errResp)
+		if err != nil {
+			errResp.STSError.Code = "InvalidArgument"
+			errResp.STSError.Message = err.Error()
+			return AssumeRoleWithWebIdentityResponse{}, errResp
+		}
+		return AssumeRoleWithWebIdentityResponse{}, errResp
 	}
 
 	a := AssumeRoleWithWebIdentityResponse{}
@@ -164,7 +171,7 @@ func getWebIdentityCredentials(clnt *http.Client, endpoint, roleARN, roleSession
 // Retrieve retrieves credentials from the MinIO service.
 // Error will be returned if the request fails.
 func (m *STSWebIdentity) Retrieve() (Value, error) {
-	a, err := getWebIdentityCredentials(m.Client, m.STSEndpoint, m.roleARN, m.roleSessionName, m.GetWebIDTokenExpiry)
+	a, err := getWebIdentityCredentials(m.Client, m.STSEndpoint, m.RoleARN, m.roleSessionName, m.GetWebIDTokenExpiry)
 	if err != nil {
 		return Value{}, err
 	}
