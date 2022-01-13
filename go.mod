@@ -16,7 +16,7 @@ require (
 	github.com/lib/pq v1.10.3
 	github.com/libsv/go-bk v0.1.6
 	github.com/libsv/go-bt/v2 v2.1.0-beta.2
-	github.com/minio/minio-go/v7 v7.0.20
+	github.com/minio/minio-go/v7 v7.0.21
 	github.com/moby/term v0.0.0-20210619224110-3f7ff695adc6 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/oliveagle/jsonpath v0.0.0-20180606110733-2e52cf6e6852
