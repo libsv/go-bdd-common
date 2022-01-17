@@ -32,7 +32,7 @@ software.
 
 #### Note:
 
-In order to better align  with our newly adopted Code of Contact, the kafka-go project has renamed our default branch to `main`.  
+In order to better align with our newly adopted Code of Conduct, the kafka-go project has renamed our default branch to `main`.
 For the full details of our Code Of Conduct see [this](./CODE_OF_CONDUCT.md) document.
 
 ## Migrating to 0.4
@@ -71,7 +71,7 @@ some features available from the Kafka API may not be implemented yet.
 
 ## Golang version
 
-`kafka-go` is currently compatible with golang version from 1.13+. To use with older versions of golang use release [v0.2.5](https://github.com/segmentio/kafka-go/releases/tag/v0.2.5).
+`kafka-go` is currently compatible with golang version from 1.15+. To use with older versions of golang use release [v0.2.5](https://github.com/segmentio/kafka-go/releases/tag/v0.2.5).
 
 ## Connection [![GoDoc](https://godoc.org/github.com/segmentio/kafka-go?status.svg)](https://godoc.org/github.com/segmentio/kafka-go#Conn)
 
@@ -118,11 +118,11 @@ batch := conn.ReadBatch(10e3, 1e6) // fetch 10KB min, 1MB max
 
 b := make([]byte, 10e3) // 10KB max per message
 for {
-    _, err := batch.Read(b)
+    n, err := batch.Read(b)
     if err != nil {
         break
     }
-    fmt.Println(string(b))
+    fmt.Println(string(b[:n]))
 }
 
 if err := batch.Close(); err != nil {
@@ -148,7 +148,6 @@ If `auto.create.topics.enable='false'` then you will need to create topics expli
 ```go
 // to create topics when auto.create.topics.enable='false'
 topic := "my-topic"
-partition := 0
 
 conn, err := kafka.Dial("tcp", "localhost:9092")
 if err != nil {
@@ -327,6 +326,13 @@ for {
     }
 }
 ```
+
+When committing messages in consumer groups, the message with the highest offset
+for a given topic/partition determines the value of the committed offset for
+that partition. For example, if messages at offset 1, 2, and 3 of a single
+partition were retrieved by call to `FetchMessage`, calling `CommitMessages`
+with message offset 3 will also result in committing the messages at offsets 1
+and 2 for that partition.
 
 ### Managing Commits
 
@@ -618,18 +624,41 @@ if err != nil {
     panic(err)
 }
 
-dialer := &kafka.Dialer{
-    Timeout:       10 * time.Second,
-    DualStack:     true,
+// Transports are responsible for managing connection pools and other resources,
+// it's generally best to create a few of these and share them across your
+// application.
+sharedTransport := &kafka.Transport{
     SASLMechanism: mechanism,
 }
 
-w := kafka.NewWriter(kafka.WriterConfig{
-	Brokers: []string{"localhost:9093"},
-	Topic:   "topic-A",
-	Balancer: &kafka.Hash{},
-	Dialer:   dialer,
-})
+w := kafka.Writer{
+	Addr:      kafka.TCP("localhost:9092"),
+	Topic:     "topic-A",
+	Balancer:  &kafka.Hash{},
+	Transport: sharedTransport,
+}
+```
+
+### Client
+
+```go
+mechanism, err := scram.Mechanism(scram.SHA512, "username", "password")
+if err != nil {
+    panic(err)
+}
+
+// Transports are responsible for managing connection pools and other resources,
+// it's generally best to create a few of these and share them across your
+// application.
+sharedTransport := &kafka.Transport{
+    SASLMechanism: mechanism,
+}
+
+client := &kafka.Client{
+    Addr:      kafka.TCP("localhost:9092"),
+    Timeout:   10 * time.Second,
+    Transport: sharedTransport,
+}
 ```
 
 #### Reading all messages within a time range
