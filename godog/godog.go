@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/cucumber/godog"
@@ -14,6 +16,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/segmentio/kafka-go"
 	flag "github.com/spf13/pflag"
 	"github.com/toorop/go-bitcoind"
 
@@ -58,6 +61,7 @@ type Suite struct {
 	servicePort string
 	btcInit     bool
 	s3Init      bool
+	kafkaInit   bool
 
 	dbCfg *DatabaseConfig
 	DB    *sql.DB
@@ -80,7 +84,8 @@ type Options struct {
 	// InitBitcoinBackend if true a bitcoin client will be created
 	InitBitcoinBackend bool
 	// InitS3 if true a minio client will be created
-	InitS3 bool
+	InitS3    bool
+	InitKafka bool
 
 	// ConcurrencyOverride if supplied, overrides the --godog.concurrency command line flag
 	ConcurrencyOverride int
@@ -128,8 +133,8 @@ func NewSuite(opts Options) *Suite {
 		servicePort: opts.ServicePort,
 		btcInit:     opts.InitBitcoinBackend,
 		s3Init:      opts.InitS3,
-
-		dbCfg: opts.DatabaseConfig,
+		kafkaInit:   opts.InitKafka,
+		dbCfg:       opts.DatabaseConfig,
 
 		tsInit: opts.TestSuiteInitializer,
 		scInit: opts.ScenarioInitializer,
@@ -168,6 +173,48 @@ func (s *Suite) Run() int {
 func (s *Suite) initTestSuite(ctx *godog.TestSuiteContext) {
 	ctx.BeforeSuite(func() {
 		s.initEnv()
+		if s.kafkaInit {
+			log.Println("Kafka enabled, clearing topics")
+			conn, err := kafka.Dial("tcp", "kafka:9092")
+			if err != nil {
+				log.Fatal("failed to clear kafka topics", err.Error())
+			}
+			defer func() { _ = conn.Close() }()
+
+			partitions, err := conn.ReadPartitions()
+			if err != nil {
+				log.Fatal(err.Error())
+			}
+
+			m := map[string]struct{}{}
+
+			for _, p := range partitions {
+				if strings.Contains(p.Topic, "offset") {
+					continue
+				}
+				m[p.Topic] = struct{}{}
+			}
+			wg := sync.WaitGroup{}
+			for k := range m {
+				wg.Add(1)
+				go func(topic string) {
+					defer wg.Done()
+					if err := conn.DeleteTopics(topic); err != nil {
+						log.Fatal(err)
+					}
+					time.Sleep(time.Second)
+					if err := conn.CreateTopics(kafka.TopicConfig{
+						Topic:             topic,
+						NumPartitions:     10,
+						ReplicationFactor: -1,
+					}); err != nil {
+						log.Fatal(err)
+					}
+				}(k)
+			}
+			wg.Wait()
+			log.Println("Kafka topics cleared and re-created")
+		}
 		var err error
 		if s.serviceName != "sars" {
 			grpcClientConn, err = grpc.Dial(
@@ -213,7 +260,6 @@ func (s *Suite) initTestSuite(ctx *godog.TestSuiteContext) {
 			}
 			defer resp.Body.Close() //nolint:errcheck
 		}
-
 		if s.dbCfg != nil {
 			if dbClientConn, err = sql.Open(
 				"postgres",
@@ -227,6 +273,7 @@ func (s *Suite) initTestSuite(ctx *godog.TestSuiteContext) {
 
 			s.DB = dbClientConn
 		}
+
 	})
 
 	if s.tsInit != nil {
@@ -271,6 +318,10 @@ func (s *Suite) initScenario(ctx *godog.ScenarioContext) {
 			testCtx.S3 = NewS3Context(minioClient)
 		}
 
+		if s.kafkaInit {
+			testCtx.Kafka = NewKafkaContext("kafka:9092")
+		}
+
 	})
 	ctx.BeforeStep(func(st *godog.Step) {
 		// Our stuff
@@ -284,7 +335,10 @@ func (s *Suite) initScenario(ctx *godog.ScenarioContext) {
 		// Our stuff
 	})
 	ctx.AfterScenario(func(sc *godog.Scenario, err error) {
-		// Our stuff
+		// close publisher
+		if s.kafkaInit {
+			_ = testCtx.Kafka.Publisher.Close()
+		}
 	})
 
 	// GRPC
@@ -329,6 +383,10 @@ func (s *Suite) initScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^a clean account directory in s3$`, ACleanAccountDirectoryInS3(testCtx))
 	ctx.Step(`^the file "([^"]+)" should exist in s3$`, TheFileExistsInS3(testCtx))
 	ctx.Step(`^the file "([^"]+)" in s3 contains the content of "([^"]+)"$`, TheFileInS3ContainsTheContent(testCtx))
+
+	// Kafka
+	ctx.Step(`^I send a Kafka message to topic "([^"]*)" with JSON "([^"]*)"$`, ISendAKafkaMessage(testCtx))
+	ctx.Step(`^I listen to topic "([^"]*)" and wait (\d+) ms for our message$`, IReadAKafkaMessage(testCtx))
 
 	// General
 	ctx.Step(`^the headers:$`, TheHeaders(testCtx))
