@@ -29,6 +29,7 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/oliveagle/jsonpath"
 	"github.com/pkg/errors"
+	"github.com/segmentio/kafka-go"
 	"github.com/toorop/go-bitcoind"
 	"github.com/yazgazan/jaydiff/diff"
 	"google.golang.org/grpc"
@@ -802,6 +803,88 @@ func IWaitForSeconds(ctx *Context) func(int) error {
 	}
 }
 
+func ISendAKafkaMessage(ctx *Context) func(string, string) error {
+	return func(topic string, fileName string) error {
+		if fileName != "" {
+			b, err := readFile(ctx, "data", fileName+".json")
+			if err != nil {
+				return err
+			}
+			ctx.RequestData = b
+		}
+		var msg *Message
+		if err := json.Unmarshal(ctx.RequestData, &msg); err != nil {
+			return errors.Wrap(err, "failed to unmarshall message")
+		}
+		ctx.Kafka.ContextID = uuid.NewString()
+		for key, val := range ctx.Headers {
+			msg.Identifiers[key] = val
+		}
+		msg.Identifiers["Ps-Kensai_id"] = ctx.Kafka.ContextID
+		bb, err := json.Marshal(msg)
+		if err != nil {
+			return errors.Wrap(err, "failed to marshall message")
+		}
+		if err := ctx.Kafka.Publisher.WriteMessages(context.Background(), kafka.Message{
+			Topic: topic,
+			Key:   []byte(ctx.Kafka.ContextID),
+			Value: bb,
+			Time:  time.Now().UTC(),
+		}); err != nil {
+			var errs kafka.WriteErrors
+			if errors.As(err, &errs) {
+				sb := strings.Builder{}
+				for _, e := range errs {
+					sb.WriteString(e.Error())
+				}
+				return fmt.Errorf("failed to send message to kafka: %s", sb.String())
+			}
+			return errors.Wrap(err, "failed to send message to kafka")
+		}
+		return nil
+	}
+}
+
+func IReadAKafkaMessage(ctx *Context) func(string, int) error {
+	return func(topic string, waitMs int) error {
+		reader := kafka.NewReader(kafka.ReaderConfig{
+			Brokers:        []string{ctx.Kafka.Broker},
+			GroupID:        uuid.NewString(),
+			Topic:          topic,
+			MaxWait:        2 * time.Second,
+			StartOffset:    0,
+			IsolationLevel: kafka.ReadCommitted,
+		})
+		defer reader.Close()
+		c := context.Background()
+		newCtx, cancelfn := context.WithTimeout(c, time.Millisecond*time.Duration(waitMs))
+		defer cancelfn()
+
+		found := false
+		for !found {
+			km, err := reader.ReadMessage(newCtx)
+			if err != nil {
+				return err
+			}
+			var msg *Message
+			if err := json.Unmarshal(km.Value, &msg); err != nil {
+				return errors.Wrap(err, "failed to unmarshall message when reading kafka")
+			}
+			if msg.Identifiers["Ps-Kensai_id"] == ctx.Kafka.ContextID {
+				found = true
+				delete(msg.Identifiers, "Ps-Kensai_id")
+				bb, err := json.Marshal(msg)
+				if err != nil {
+					return errors.Wrap(err, "failed to marshall message when reading kafka")
+				}
+				ctx.ResponseData = bb
+				return nil
+			}
+		}
+		return fmt.Errorf("message not received for topic %s", topic)
+	}
+}
+
 func readFile(ctx *Context, dir, fileName string) ([]byte, error) {
 	if dir == "" || fileName == "" {
 		return []byte{}, nil
@@ -927,4 +1010,33 @@ func checkDiff(l, r interface{}) error {
 	})
 
 	return fmt.Errorf(report)
+}
+
+// Message defines a standard kensei event.
+type Message struct {
+	Identifiers map[string]string `json:"identifiers"`
+	Key         string            `json:"key"`
+	Body        json.RawMessage   `json:"body"`
+	Origin      string            `json:"origin"`
+	PublishMeta *PublishMeta      `json:"publishMeta,omitempty"`
+}
+
+// PublishMeta contains know meta objects that we can expect in a Message,
+// more can be added as we need them.
+//
+// They should be nullable and not present if they have a nil or empty value.
+type PublishMeta struct {
+	Partition string           `json:"partition,omitempty"`
+	Failures  []MessageFailure `json:"failures,omitempty"`
+	Attempts  *int             `json:"attempts,omitempty"`
+}
+
+// MessageFailure defines a consumer failure and is added to the message
+// if it has failed to be handled correctly in an application.
+// By using WithFailure you can pass the error and this will create and
+// add the MessageFailure to the message.
+type MessageFailure struct {
+	FailureTime time.Time `json:"failureTime"`
+	Reason      string    `json:"reason"`
+	HandledBy   string    `json:"handledBy"`
 }

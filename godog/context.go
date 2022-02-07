@@ -5,10 +5,13 @@ import (
 	"net/http"
 	"strings"
 	"text/template"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/libsv/go-bk/wif"
 	"github.com/libsv/go-bt/v2"
 	"github.com/minio/minio-go/v7"
+	"github.com/segmentio/kafka-go"
 	"github.com/toorop/go-bitcoind"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
@@ -72,6 +75,27 @@ func NewS3Context(client *minio.Client) *S3Context {
 	}
 }
 
+func NewKafkaContext(host string) *KafkaContext {
+	w := &kafka.Writer{
+		Addr:         kafka.TCP(host),
+		Balancer:     kafka.Murmur2Balancer{},
+		MaxAttempts:  5,
+		BatchSize:    100,
+		WriteTimeout: 10 * time.Second,
+		Async:        false,
+		Logger:       nil,
+		ErrorLogger:  nil,
+		Transport:    nil,
+	}
+	return &KafkaContext{
+		Publisher: w,
+		Consumer:  nil,
+		// ContextID is a uniqueID to identify a scenarios messages.
+		ContextID: uuid.NewString(),
+		Broker:    host,
+	}
+}
+
 // Context holds all variables and response data for a given scenario
 type Context struct {
 	// ScenarioID the id of the current godog scenario
@@ -89,6 +113,8 @@ type Context struct {
 	BTC *BitcoinContext
 	// S3 the *S3Context use for making S3 requests
 	S3 *S3Context
+	// Kafka stores the context used to send and receive kafka messages.
+	Kafka *KafkaContext
 
 	// Headers a map of key value pairs which are used as headers for every HTTP/GRPC call
 	Headers map[string]string
@@ -122,6 +148,13 @@ type GRPCContext struct {
 	Conn *grpc.ClientConn
 	// Status the status of the response
 	Status *status.Status
+}
+
+type KafkaContext struct {
+	Publisher *kafka.Writer
+	Consumer  *kafka.Reader
+	ContextID string
+	Broker    string
 }
 
 // BitcoinContext stores bitcoin node information used when interfacing
