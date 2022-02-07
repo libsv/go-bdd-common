@@ -179,7 +179,7 @@ func (s *Suite) initTestSuite(ctx *godog.TestSuiteContext) {
 			if err != nil {
 				log.Fatal("failed to clear kafka topics", err.Error())
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 
 			partitions, err := conn.ReadPartitions()
 			if err != nil {

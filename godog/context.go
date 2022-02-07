@@ -150,6 +150,7 @@ type GRPCContext struct {
 	Status *status.Status
 }
 
+// KafkaContext stores information for use across a scenario.
 type KafkaContext struct {
 	Publisher *kafka.Writer
 	Consumer  *kafka.Reader

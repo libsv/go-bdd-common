@@ -855,13 +855,12 @@ func IReadAKafkaMessage(ctx *Context) func(string, int) error {
 			StartOffset:    0,
 			IsolationLevel: kafka.ReadCommitted,
 		})
-		defer reader.Close()
+		defer func() { _ = reader.Close() }()
 		c := context.Background()
 		newCtx, cancelfn := context.WithTimeout(c, time.Millisecond*time.Duration(waitMs))
 		defer cancelfn()
 
-		found := false
-		for !found {
+		for {
 			km, err := reader.ReadMessage(newCtx)
 			if err != nil {
 				return err
@@ -871,7 +870,6 @@ func IReadAKafkaMessage(ctx *Context) func(string, int) error {
 				return errors.Wrap(err, "failed to unmarshall message when reading kafka")
 			}
 			if msg.Identifiers["Ps-Kensai_id"] == ctx.Kafka.ContextID {
-				found = true
 				delete(msg.Identifiers, "Ps-Kensai_id")
 				bb, err := json.Marshal(msg)
 				if err != nil {
@@ -881,7 +879,6 @@ func IReadAKafkaMessage(ctx *Context) func(string, int) error {
 				return nil
 			}
 		}
-		return fmt.Errorf("message not received for topic %s", topic)
 	}
 }
 
