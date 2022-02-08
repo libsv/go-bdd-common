@@ -175,7 +175,7 @@ func (s *Suite) initTestSuite(ctx *godog.TestSuiteContext) {
 		s.initEnv()
 		if s.kafkaInit {
 			log.Println("Kafka enabled, clearing topics")
-			conn, err := kafka.Dial("tcp", "kafka:9092")
+			conn, err := kafka.Dial("tcp", "localhost:9092")
 			if err != nil {
 				log.Fatal("failed to clear kafka topics", err.Error())
 			}
@@ -319,7 +319,7 @@ func (s *Suite) initScenario(ctx *godog.ScenarioContext) {
 		}
 
 		if s.kafkaInit {
-			testCtx.Kafka = NewKafkaContext("kafka:9092")
+			testCtx.Kafka = NewKafkaContext("localhost:9092")
 		}
 
 	})
