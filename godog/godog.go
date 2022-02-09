@@ -319,7 +319,7 @@ func (s *Suite) initScenario(ctx *godog.ScenarioContext) {
 		}
 
 		if s.kafkaInit {
-			testCtx.Kafka = NewKafkaContext("localhost:9092")
+			testCtx.Kafka = NewKafkaContext("localhost:29092")
 		}
 
 	})
