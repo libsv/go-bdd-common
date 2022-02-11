@@ -204,8 +204,8 @@ github.com/pkg/errors
 # github.com/rs/xid v1.2.1
 ## explicit
 github.com/rs/xid
-# github.com/segmentio/kafka-go v0.4.20
-## explicit; go 1.13
+# github.com/segmentio/kafka-go v0.4.28
+## explicit; go 1.15
 github.com/segmentio/kafka-go
 github.com/segmentio/kafka-go/compress
 github.com/segmentio/kafka-go/compress/gzip
