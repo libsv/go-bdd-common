@@ -15,7 +15,7 @@ require (
 	github.com/minio/minio-go/v7 v7.0.20
 	github.com/oliveagle/jsonpath v0.0.0-20180606110733-2e52cf6e6852
 	github.com/pkg/errors v0.9.1
-	github.com/segmentio/kafka-go v0.4.20
+	github.com/segmentio/kafka-go v0.4.29
 	github.com/spf13/pflag v1.0.5
 	github.com/toorop/go-bitcoind v0.0.0-20201025081558-87ada228a807
 	github.com/yazgazan/jaydiff v0.3.1
@@ -34,13 +34,12 @@ require (
 	github.com/fatih/color v1.7.0 // indirect
 	github.com/gofrs/uuid v4.0.0+incompatible // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
-	github.com/golang/snappy v0.0.1 // indirect
 	github.com/gorilla/mux v1.8.0 // indirect
 	github.com/hashicorp/go-immutable-radix v1.3.0 // indirect
 	github.com/hashicorp/go-memdb v1.3.0 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/json-iterator/go v1.1.10 // indirect
-	github.com/klauspost/compress v1.13.5 // indirect
+	github.com/klauspost/compress v1.14.2 // indirect
 	github.com/klauspost/cpuid v1.3.1 // indirect
 	github.com/mattn/go-colorable v0.0.9 // indirect
 	github.com/mattn/go-isatty v0.0.4 // indirect
@@ -54,7 +53,7 @@ require (
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.0.1 // indirect
-	github.com/pierrec/lz4 v2.6.0+incompatible // indirect
+	github.com/pierrec/lz4/v4 v4.1.14 // indirect
 	github.com/rs/xid v1.2.1 // indirect
 	github.com/sirupsen/logrus v1.8.1 // indirect
 	golang.org/x/crypto v0.0.0-20210711020723-a769d52b0f97 // indirect
