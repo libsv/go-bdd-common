@@ -7,8 +7,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
-	"sync"
 	"time"
 
 	"github.com/cucumber/godog"
@@ -16,7 +14,6 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	"github.com/segmentio/kafka-go"
 	flag "github.com/spf13/pflag"
 	"github.com/toorop/go-bitcoind"
 
@@ -173,50 +170,10 @@ func (s *Suite) Run() int {
 func (s *Suite) initTestSuite(ctx *godog.TestSuiteContext) {
 	ctx.BeforeSuite(func() {
 		s.initEnv()
-		if s.kafkaInit {
-			log.Println("Kafka enabled, clearing topics")
-			conn, err := kafka.Dial("tcp", "localhost:9092")
-			if err != nil {
-				log.Fatal("failed to clear kafka topics", err.Error())
-			}
-			defer func() { _ = conn.Close() }()
-
-			partitions, err := conn.ReadPartitions()
-			if err != nil {
-				log.Fatal(err.Error())
-			}
-
-			m := map[string]struct{}{}
-
-			for _, p := range partitions {
-				if strings.Contains(p.Topic, "offset") {
-					continue
-				}
-				m[p.Topic] = struct{}{}
-			}
-			wg := sync.WaitGroup{}
-			for k := range m {
-				wg.Add(1)
-				go func(topic string) {
-					defer wg.Done()
-					if err := conn.DeleteTopics(topic); err != nil {
-						log.Fatal(err)
-					}
-					time.Sleep(time.Second)
-					if err := conn.CreateTopics(kafka.TopicConfig{
-						Topic:             topic,
-						NumPartitions:     10,
-						ReplicationFactor: -1,
-					}); err != nil {
-						log.Fatal(err)
-					}
-				}(k)
-			}
-			wg.Wait()
-			log.Println("Kafka topics cleared and re-created")
-		}
+		fmt.Println("environment setup")
 		var err error
 		if s.serviceName != "sars" {
+			fmt.Println("dialing service: ", s.serviceName)
 			grpcClientConn, err = grpc.Dial(
 				fmt.Sprintf(":3%s", s.servicePort[1:]),
 				grpc.WithInsecure(),
@@ -229,9 +186,11 @@ func (s *Suite) initTestSuite(ctx *godog.TestSuiteContext) {
 			if err != nil {
 				log.Fatal(err)
 			}
+			fmt.Println("contacted service: ", s.serviceName)
 		}
 
 		if s.btcInit {
+			fmt.Println("contacting bitcoind")
 			btcClientConn, err = bitcoind.New(
 				"localhost", 18332, "bitcoin", "bitcoin", false,
 			)
@@ -259,8 +218,10 @@ func (s *Suite) initTestSuite(ctx *godog.TestSuiteContext) {
 				log.Fatal(err)
 			}
 			defer resp.Body.Close() //nolint:errcheck
+			fmt.Println("performed generate 101 with bitcoind success")
 		}
 		if s.dbCfg != nil {
+			fmt.Println("contacting db")
 			if dbClientConn, err = sql.Open(
 				"postgres",
 				fmt.Sprintf(
@@ -272,6 +233,7 @@ func (s *Suite) initTestSuite(ctx *godog.TestSuiteContext) {
 			}
 
 			s.DB = dbClientConn
+			fmt.Println("contacted db")
 		}
 
 	})
@@ -279,7 +241,7 @@ func (s *Suite) initTestSuite(ctx *godog.TestSuiteContext) {
 	if s.tsInit != nil {
 		s.tsInit(ctx)
 	}
-
+	fmt.Println("init setup")
 	// Allow any user `AfterSuite` to be loaded in before tearing down the environment
 	// incase the user wants to do perform some cleanup operations.
 	ctx.AfterSuite(func() {

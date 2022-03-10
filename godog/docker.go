@@ -14,6 +14,7 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/go-connections/nat"
@@ -35,6 +36,7 @@ type Env struct {
 
 func (s *Suite) initEnv() {
 	s.takeSnapshot()
+	s.teardownEnv()
 	vars := []string{"S3_ENDPOINT=http://s3:9000", "ENV_ENVIRONMENT=local"}
 	env := s.initDeps()
 	s.env.Vars = append(s.env.Vars, vars...)
@@ -103,17 +105,21 @@ func (s *Suite) initDeps() []string {
 }
 
 func (s *Suite) teardownEnv() {
+	fmt.Println("tearing down containers to provide determinitic test env")
 	cc, err := s.dc.ContainerList(context.Background(), types.ContainerListOptions{})
 	if err != nil {
-		fmt.Println(err)
+		log.Fatal("failed to list docker containers ", err)
 	}
 	for _, c := range cc {
-		if _, ok := dockerSnapshot[c.ID]; !ok {
-			if err := s.dc.ContainerKill(context.Background(), c.ID, "SIGKILL"); err != nil {
-				fmt.Println(err)
-			}
+		if err := s.dc.ContainerKill(context.Background(), c.ID, "SIGKILL"); err != nil {
+			log.Fatal("failed to kill docker container ", err)
 		}
 	}
+	// clear all volumes so we have a deterministic state
+	if _, err := s.dc.VolumesPrune(context.Background(), filters.Args{}); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("environment cleared")
 }
 
 func (s *Suite) initReal() {
@@ -163,21 +169,21 @@ func (s *Suite) initReal() {
 	if !waitKafka {
 		return
 	}
-
+	fmt.Println("waiting for kafka to become available")
 	kkCtx := context.Background()
 	var kkErr error = nil
-	for i := 0; i < 5; i++ {
-		if e := kakfaReady(kkCtx); e != nil {
-			kkErr = e
+	for i := 0; i < 10; i++ {
+		time.Sleep(time.Second * 10)
+		kkErr = kakfaReady(kkCtx)
+		if kkErr == nil {
 			break
 		}
-
-		time.Sleep(time.Second * 10)
 	}
 
 	if kkErr != nil {
 		log.Fatal(errors.Wrap(kkErr, "waiting for kafka timed out"))
 	}
+	fmt.Println("kafka ready")
 }
 
 func (s *Suite) initMocks() []string {
