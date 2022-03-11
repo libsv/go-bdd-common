@@ -4,7 +4,7 @@ go 1.17
 
 require (
 	github.com/cucumber/godog v0.11.0
-	github.com/docker/docker v20.10.8+incompatible
+	github.com/docker/docker v20.10.13+incompatible
 	github.com/docker/go-connections v0.4.0
 	github.com/golang/protobuf v1.5.2
 	github.com/google/uuid v1.2.0
