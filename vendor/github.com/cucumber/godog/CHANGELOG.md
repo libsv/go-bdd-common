@@ -10,15 +10,89 @@ This document is formatted according to the principles of [Keep A CHANGELOG](htt
 
 ## [Unreleased]
 
-### Added
+
+## [v0.12.5]
 
 ### Changed
 
+- Changed underlying cobra command setup to return errors instead of calling `os.Exit` directly to enable simpler testing. ([454](https://github.com/cucumber/godog/pull/454) - [mxygem])
+- Remove use of deprecated methods from `_examples`. ([460](https://github.com/cucumber/godog/pull/460) - [ricardogarfe])
+
+### Fixed
+
+- Support for go1.18 in `godog` cli mode ([466](https://github.com/cucumber/godog/pull/466) - [vearutop])
+
+## [v0.12.4]
+
+### Added
+
+- Allow suite-level configuration of steps and hooks ([453](https://github.com/cucumber/godog/pull/453) - [vearutop])
+
+## Changed
+
+- Run scenarios in the same goroutine if concurrency is disabled (([453](https://github.com/cucumber/godog/pull/453) - [vearutop]))
+
+
+## [v0.12.3]
+
+### Added
+
+- Automated binary releases with GitHub Actions ([437](https://github.com/cucumber/godog/pull/437) - [vearutop])
+- Automated binary versioning with `go install` ([437](https://github.com/cucumber/godog/pull/437) - [vearutop])
+- Module with local replace in examples ([437](https://github.com/cucumber/godog/pull/437) - [vearutop])
+
+### Changed
+
+- suggest to use `go install` instead of the deprecated `go get` to install the `godog` binary ([449](https://github.com/cucumber/godog/pull/449) - [dmitris](https://github.com/dmitris))
+
+### Fixed
+
+- After Scenario hook is called before After Step ([444](https://github.com/cucumber/godog/pull/444) - [vearutop])
+- `check-go-version` in Makefile to run on WSL. ([443](https://github.com/cucumber/godog/pull/443) - [mxygem])
+
+## [v0.12.2]
+
+### Fixed
+
+- Error in `go mod tidy` with `GO111MODULE=off` ([436]((https://github.com/cucumber/godog/pull/436) - [vearutop])
+
+## [v0.12.1]
+
+### Fixed
+
+- Unintended change of behavior in before step hook ([424](https://github.com/cucumber/godog/pull/424) - [nhatthm])
+
+## [v0.12.0]
+
+### Added
+
+- Support for step definitions without return ([364](https://github.com/cucumber/godog/pull/364) - [titouanfreville])
+- Contextualized hooks for scenarios and steps ([409](https://github.com/cucumber/godog/pull/409) - [vearutop])
+- Step result status in After hook ([409](https://github.com/cucumber/godog/pull/409) - [vearutop])
+- Support auto converting doc strings to plain strings ([380](https://github.com/cucumber/godog/pull/380) - [chirino])
+- Use multiple formatters in the same test run ([392](https://github.com/cucumber/godog/pull/392) - [vearutop])
+- Added `RetrieveFeatures()` method to `godog.TestSuite` ([276](https://github.com/cucumber/godog/pull/276) - [radtriste])
+- Added support to create custom formatters ([372](https://github.com/cucumber/godog/pull/372) - [leviable])
+
+### Changed
+
+- Upgraded gherkin-go to v19 and messages-go to v16 ([402](https://github.com/cucumber/godog/pull/402) - [mbow])
+- Generate simpler snippets that use *godog.DocString and *godog.Table ([379](https://github.com/cucumber/godog/pull/379)) - [chirino])
+
 ### Deprecated
+
+- `ScenarioContext.BeforeScenario`, use `ScenarioContext.Before` ([409](https://github.com/cucumber/godog/pull/409)) - [vearutop])
+- `ScenarioContext.AfterScenario`, use `ScenarioContext.After` ([409](https://github.com/cucumber/godog/pull/409)) - [vearutop])
+- `ScenarioContext.BeforeStep`, use `ScenarioContext.StepContext().Before` ([409](https://github.com/cucumber/godog/pull/409)) - [vearutop])
+- `ScenarioContext.AfterStep`, use `ScenarioContext.StepContext().After` ([409](https://github.com/cucumber/godog/pull/409)) - [vearutop])
 
 ### Removed
 
 ### Fixed
+
+- Incorrect step definition output for Data Tables ([411](https://github.com/cucumber/godog/pull/411) - [karfrank])
+- `ScenarioContext.AfterStep` not invoked after a failed case (([409](https://github.com/cucumber/godog/pull/409)) - [vearutop]))
+- Can't execute multiple specific scenarios in the same feature file (([414](https://github.com/cucumber/godog/pull/414)) - [vearutop]))
 
 ## [v0.11.0]
 
@@ -55,6 +129,8 @@ This document is formatted according to the principles of [Keep A CHANGELOG](htt
 - doc(FAQ/TestMain): `testing.M.Run()` is optional ([353](https://github.com/cucumber/godog/pull/353) - [hansbogert])
 - Made a fix for the unstable Randomize Run tests ([354](https://github.com/cucumber/godog/pull/354) - [lonnblad])
 - Fixed an issue when go test is parsing command-line flags ([359](https://github.com/cucumber/godog/pull/359) - [lonnblad])
+- Make pickleStepIDs unique accross multiple paths ([366](https://github.com/cucumber/godog/pull/366) - [rickardenglund])
+
 
 ## [v0.10.0]
 
@@ -112,8 +188,8 @@ This document is formatted according to the principles of [Keep A CHANGELOG](htt
 
 ### Changed
 
-- Run godog features in CircleCI in strict mode ([jaysonesmith])
-- Removed TestMain call in `suite_test.go` for CI. ([jaysonesmith])
+- Run godog features in CircleCI in strict mode ([mxygem])
+- Removed TestMain call in `suite_test.go` for CI. ([mxygem])
 - Migrated to [gherkin-go - v11.0.0](https://github.com/cucumber/gherkin-go/releases/tag/v11.0.0). ([240](https://github.com/cucumber/godog/pull/240) - [lonnblad])
 
 ### Deprecated
@@ -124,7 +200,7 @@ This document is formatted according to the principles of [Keep A CHANGELOG](htt
 
 - Fixed the time attributes in the JUnit formatter. ([232](https://github.com/cucumber/godog/pull/232) - [lonnblad])
 - Re enable custom formatters. ([238](https://github.com/cucumber/godog/pull/238) - [ericmcbride])
-- Added back suite_test.go ([jaysonesmith])
+- Added back suite_test.go ([mxygem])
 - Normalise module paths for use on Windows ([242](https://github.com/cucumber/godog/pull/242) - [gjtaylor])
 - Fixed panic in indenting function `s` ([247](https://github.com/cucumber/godog/pull/247) - [titouanfreville])
 - Fixed wrong version in API example ([263](https://github.com/cucumber/godog/pull/263) - [denis-trofimov])
@@ -147,18 +223,18 @@ This document is formatted according to the principles of [Keep A CHANGELOG](htt
 ### Fixed
 
 - Find/Replaced references to DATA-DOG/godog -> cucumber/godog for docs. ([209](https://github.com/cucumber/godog/pull/209) - [smikulcik])
-- Fixed missing links in changelog to be correctly included! ([jaysonesmith])
+- Fixed missing links in changelog to be correctly included! ([mxygem])
 
 ## [0.8.0]
 
 ### Added
 
-- Added initial CircleCI config. ([jaysonesmith])
+- Added initial CircleCI config. ([mxygem])
 - Added concurrency support for JUnit formatting ([lonnblad])
 
 ### Changed
 
-- Changed code references to DATA-DOG/godog to cucumber/godog to help get things building correctly. ([jaysonesmith])
+- Changed code references to DATA-DOG/godog to cucumber/godog to help get things building correctly. ([mxygem])
 
 ### Deprecated
 
@@ -168,7 +244,12 @@ This document is formatted according to the principles of [Keep A CHANGELOG](htt
 
 <!-- Releases -->
 
-[unreleased]: https://github.com/cucumber/godog/compare/v0.11.0...master
+[v0.12.5]: https://github.com/cucumber/godog/compare/v0.12.4...v0.12.5
+[v0.12.4]: https://github.com/cucumber/godog/compare/v0.12.3...v0.12.4
+[v0.12.3]: https://github.com/cucumber/godog/compare/v0.12.2...v0.12.3
+[v0.12.2]: https://github.com/cucumber/godog/compare/v0.12.1...v0.12.2
+[v0.12.1]: https://github.com/cucumber/godog/compare/v0.12.0...v0.12.1
+[v0.12.0]: https://github.com/cucumber/godog/compare/v0.11.0...v0.12.0
 [v0.11.0]: https://github.com/cucumber/godog/compare/v0.10.0...v0.11.0
 [v0.10.0]: https://github.com/cucumber/godog/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/cucumber/godog/compare/v0.8.1...v0.9.0
@@ -178,7 +259,7 @@ This document is formatted according to the principles of [Keep A CHANGELOG](htt
 <!-- Contributors -->
 
 [axw]: https://github.com/axw
-[jaysonesmith]: https://github.com/jaysonesmith
+[mxygem]: https://github.com/mxygem
 [lonnblad]: https://github.com/lonnblad
 [smikulcik]: https://github.com/smikulcik
 [ericmcbride]: https://github.com/ericmcbride
@@ -187,3 +268,10 @@ This document is formatted according to the principles of [Keep A CHANGELOG](htt
 [denis-trofimov]: https://github.com/denis-trofimov
 [leviable]: https://github.com/leviable
 [hansbogert]: https://github.com/hansbogert
+[rickardenglund]: https://github.com/rickardenglund
+[mbow]: https://github.com/mbow
+[vearutop]: https://github.com/vearutop
+[chirino]: https://github.com/chirino
+[radtriste]: https://github.com/radtriste
+[karfrank]: https://github.com/karfrank
+[nhatthm]: https://github.com/nhatthm

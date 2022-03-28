@@ -1,7 +1,7 @@
 include default.mk
 
 GHERKIN_DIALECTS := $(shell cat gherkin-languages.json | jq --compact-output --sort-keys . | base64 | tr -d '\n')
-GOX_LDFLAGS := "-X 'main.version=${NEW_VERSION}' -X 'main.gherkinDialects=${GHERKIN_DIALECTS}'"
+LDFLAGS := "-X 'main.version=${NEW_VERSION}' -X 'main.gherkinDialects=${GHERKIN_DIALECTS}'"
 
 GOOD_FEATURE_FILES = $(shell find testdata/good -name "*.feature")
 BAD_FEATURE_FILES  = $(shell find testdata/bad -name "*.feature")
@@ -37,67 +37,61 @@ $(EXE): parser.go dialects_builtin.go
 
 testdata/%.feature.tokens: testdata/%.feature
 ifdef GOLDEN
-	mkdir -p `dirname $@`
+	mkdir -p $(@D)
 	bin/gherkin-generate-tokens $< > $@
 endif
 
 acceptance/testdata/%.feature.tokens: testdata/%.feature testdata/%.feature.tokens bin/gherkin-generate-tokens
-	mkdir -p `dirname $@`
+	mkdir -p $(@D)
 	bin/gherkin-generate-tokens $< > $@
 	diff --unified $<.tokens $@
 
 testdata/%.feature.ast.ndjson: testdata/%.feature $(EXE)
 ifdef GOLDEN
-	mkdir -p `dirname $@`
-	$(EXE) --predictable-ids --format ndjson --no-source --no-pickles $< | jq --sort-keys -f remove_empty.jq > $@
+	mkdir -p $(@D)
+	$(EXE) --predictable-ids --no-source --no-pickles $< | jq --sort-keys  --compact-output > $@
 endif
 
 acceptance/testdata/%.feature.ast.ndjson: testdata/%.feature testdata/%.feature.ast.ndjson $(EXE)
-	mkdir -p `dirname $@`
-	$(EXE) --predictable-ids --format ndjson --no-source --no-pickles $< | jq --sort-keys --compact-output -f remove_empty.jq > $@
-	-diff --unified <(jq "." $<.ast.ndjson) <(jq "." $@)
+	mkdir -p $(@D)
+	$(EXE) --predictable-ids --no-source --no-pickles $< | jq --sort-keys --compact-output > $@
+	diff --unified <(jq "." $<.ast.ndjson) <(jq "." $@)
 
 testdata/%.feature.errors.ndjson: testdata/%.feature $(EXE)
 ifdef GOLDEN
-	mkdir -p `dirname $@`
-	$(EXE) --predictable-ids --format ndjson --no-source $< | jq --sort-keys -f remove_empty.jq > $@
+	mkdir -p $(@D)
+	$(EXE) --predictable-ids --no-source $< | jq --sort-keys  --compact-output > $@
 endif
 
 acceptance/testdata/%.feature.errors.ndjson: testdata/%.feature testdata/%.feature.errors.ndjson $(EXE)
-	mkdir -p `dirname $@`
-	$(EXE) --predictable-ids --format ndjson --no-source $< | jq --sort-keys --compact-output -f remove_empty.jq > $@
+	mkdir -p $(@D)
+	$(EXE) --predictable-ids --no-source $< | jq --sort-keys --compact-output > $@
 	diff --unified <(jq "." $<.errors.ndjson) <(jq "." $@)
 
 testdata/%.feature.source.ndjson: testdata/%.feature $(EXE)
 ifdef GOLDEN
-	mkdir -p `dirname $@`
-	$(EXE) --predictable-ids --format ndjson --no-ast --no-pickles $< | jq --sort-keys -f remove_empty.jq > $@
+	mkdir -p $(@D)
+	$(EXE) --predictable-ids --no-ast --no-pickles $< | jq --sort-keys  --compact-output > $@
 endif
 
 acceptance/testdata/%.feature.source.ndjson: testdata/%.feature testdata/%.feature.source.ndjson $(EXE)
-	mkdir -p `dirname $@`
-	$(EXE) --predictable-ids --format ndjson --no-ast --no-pickles $< | jq --sort-keys --compact-output -f remove_empty.jq > $@
+	mkdir -p $(@D)
+	$(EXE) --predictable-ids --no-ast --no-pickles $< | jq --sort-keys --compact-output > $@
 	diff --unified <(jq "." $<.source.ndjson) <(jq "." $@)
 
 testdata/%.feature.pickles.ndjson: testdata/%.feature $(EXE)
 ifdef GOLDEN
-	mkdir -p `dirname $@`
-	$(EXE) --predictable-ids --format ndjson --no-source --no-ast $< | jq --sort-keys -f remove_empty.jq > $@
+	mkdir -p $(@D)
+	$(EXE) --predictable-ids --no-source --no-ast $< | jq --sort-keys --compact-output > $@
 endif
 
 acceptance/testdata/%.feature.pickles.ndjson: testdata/%.feature testdata/%.feature.pickles.ndjson $(EXE)
-	mkdir -p `dirname $@`
-	$(EXE) --predictable-ids --format ndjson --no-source --no-ast $< | jq --sort-keys --compact-output -f remove_empty.jq > $@
+	mkdir -p $(@D)
+	$(EXE) --predictable-ids --no-source --no-ast $< | jq --sort-keys --compact-output > $@
 	diff --unified <(jq "." $<.pickles.ndjson) <(jq "." $@)
 
-parser.go: gherkin.berp parser.go.razor berp/berp.exe
-	# We're allowing mono to fail. The monorepo build runs in a docker image which
-	# doesn't have mono installed. This looks like it will be fixed post Alpine 3.9:
-	# https://pkgs.alpinelinux.org/packages?name=mono&branch=edge
-	-mono berp/berp.exe -g gherkin.berp -t parser.go.razor -o $@
-	# Remove BOM
-	awk 'NR==1{sub(/^\xef\xbb\xbf/,"")}{print}' < $@ > $@.nobom
-	mv $@.nobom $@
+parser.go: parser.go.razor gherkin.berp
+	$(berp-generate-parser)
 	gofmt -w $@
 
 dialects_builtin.go: gherkin-languages.json dialects_builtin.go.jq
