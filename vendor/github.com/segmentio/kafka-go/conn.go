@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -241,11 +240,10 @@ func (c *Conn) loadVersions() (apiVersionMap, error) {
 // connection was established to.
 func (c *Conn) Broker() Broker {
 	addr := c.conn.RemoteAddr()
-	host, port, _ := net.SplitHostPort(addr.String())
-	portNumber, _ := strconv.Atoi(port)
+	host, port, _ := splitHostPortNumber(addr.String())
 	return Broker{
 		Host: host,
-		Port: portNumber,
+		Port: port,
 		ID:   int(c.broker),
 		Rack: c.rack,
 	}
@@ -313,34 +311,6 @@ func (c *Conn) DeleteTopics(topics ...string) error {
 		Topics: topics,
 	})
 	return err
-}
-
-// describeGroups retrieves the specified groups
-//
-// See http://kafka.apache.org/protocol.html#The_Messages_DescribeGroups
-func (c *Conn) describeGroups(request describeGroupsRequestV0) (describeGroupsResponseV0, error) {
-	var response describeGroupsResponseV0
-
-	err := c.readOperation(
-		func(deadline time.Time, id int32) error {
-			return c.writeRequest(describeGroups, v0, id, request)
-		},
-		func(deadline time.Time, size int) error {
-			return expectZeroSize(func() (remain int, err error) {
-				return (&response).readFrom(&c.rbuf, size)
-			}())
-		},
-	)
-	if err != nil {
-		return describeGroupsResponseV0{}, err
-	}
-	for _, group := range response.Groups {
-		if group.ErrorCode != 0 {
-			return describeGroupsResponseV0{}, Error(group.ErrorCode)
-		}
-	}
-
-	return response, nil
 }
 
 // findCoordinator finds the coordinator for the specified group or transaction
@@ -883,7 +853,7 @@ func (c *Conn) ReadBatchWith(cfg ReadBatchConfig) *Batch {
 	default:
 		throttle, highWaterMark, remain, err = readFetchResponseHeaderV2(&c.rbuf, size)
 	}
-	if err == errShortRead {
+	if errors.Is(err, errShortRead) {
 		err = checkTimeoutErr(adjustedDeadline)
 	}
 
@@ -895,9 +865,10 @@ func (c *Conn) ReadBatchWith(cfg ReadBatchConfig) *Batch {
 			msgs, err = newMessageSetReader(&c.rbuf, remain)
 		}
 	}
-	if err == errShortRead {
+	if errors.Is(err, errShortRead) {
 		err = checkTimeoutErr(adjustedDeadline)
 	}
+
 	return &Batch{
 		conn:          c,
 		msgs:          msgs,
@@ -1022,14 +993,6 @@ func (c *Conn) ReadPartitions(topics ...string) (partitions []Partition, err err
 				}
 			}
 
-			makeBrokers := func(ids ...int32) []Broker {
-				b := make([]Broker, len(ids))
-				for i, id := range ids {
-					b[i] = brokers[id]
-				}
-				return b
-			}
-
 			for _, t := range res.Topics {
 				if t.TopicErrorCode != 0 && (c.topic == "" || t.TopicName == c.topic) {
 					// We only report errors if they happened for the topic of
@@ -1041,8 +1004,8 @@ func (c *Conn) ReadPartitions(topics ...string) (partitions []Partition, err err
 					partitions = append(partitions, Partition{
 						Topic:    t.TopicName,
 						Leader:   brokers[p.Leader],
-						Replicas: makeBrokers(p.Replicas...),
-						Isr:      makeBrokers(p.Isr...),
+						Replicas: makeBrokers(brokers, p.Replicas...),
+						Isr:      makeBrokers(brokers, p.Isr...),
 						ID:       int(p.PartitionID),
 					})
 				}
@@ -1051,6 +1014,16 @@ func (c *Conn) ReadPartitions(topics ...string) (partitions []Partition, err err
 		},
 	)
 	return
+}
+
+func makeBrokers(brokers map[int32]Broker, ids ...int32) []Broker {
+	b := make([]Broker, 0, len(ids))
+	for _, id := range ids {
+		if br, ok := brokers[id]; ok {
+			b = append(b, br)
+		}
+	}
+	return b
 }
 
 // Write writes a message to the kafka broker that this connection was

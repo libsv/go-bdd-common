@@ -79,7 +79,7 @@ type Writer struct {
 	// Address of the kafka cluster that this writer is configured to send
 	// messages to.
 	//
-	// This feild is required, attempting to write messages to a writer with a
+	// This field is required, attempting to write messages to a writer with a
 	// nil address will error.
 	Addr net.Addr
 
@@ -185,12 +185,13 @@ type Writer struct {
 	// If nil, DefaultTransport is used.
 	Transport RoundTripper
 
-	// Atomic flag indicating whether the writer has been closed.
-	closed uint32
-	group  sync.WaitGroup
+	// AllowAutoTopicCreation notifies writer to create topic is missing.
+	AllowAutoTopicCreation bool
 
 	// Manages the current set of partition-topic writers.
+	group   sync.WaitGroup
 	mutex   sync.Mutex
+	closed  bool
 	writers map[topicPartition]*partitionWriter
 
 	// writer stats are all made of atomic values, no need for synchronization.
@@ -505,13 +506,47 @@ func NewWriter(config WriterConfig) *Writer {
 	return w
 }
 
+// enter is called by WriteMessages to indicate that a new inflight operation
+// has started, which helps synchronize with Close and ensure that the method
+// does not return until all inflight operations were completed.
+func (w *Writer) enter() bool {
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
+	if w.closed {
+		return false
+	}
+	w.group.Add(1)
+	return true
+}
+
+// leave is called by WriteMessages to indicate that the inflight operation has
+// completed.
+func (w *Writer) leave() { w.group.Done() }
+
+// spawn starts an new asynchronous operation on the writer. This method is used
+// instead of starting goroutines inline to help manage the state of the
+// writer's wait group. The wait group is used to block Close calls until all
+// inflight operations have completed, therefore automatically including those
+// started with calls to spawn.
+func (w *Writer) spawn(f func()) {
+	w.group.Add(1)
+	go func() {
+		defer w.group.Done()
+		f()
+	}()
+}
+
 // Close flushes pending writes, and waits for all writes to complete before
 // returning. Calling Close also prevents new writes from being submitted to
 // the writer, further calls to WriteMessages and the like will fail with
 // io.ErrClosedPipe.
 func (w *Writer) Close() error {
-	w.markClosed()
 	w.mutex.Lock()
+	// Marking the writer as closed here causes future calls to WriteMessages to
+	// fail with io.ErrClosedPipe. Mutation of this field is synchronized on the
+	// writer's mutex to ensure that no more increments of the wait group are
+	// performed afterwards (which could otherwise race with the Wait below).
+	w.closed = true
 
 	// close all writers to trigger any pending batches
 	for _, writer := range w.writers {
@@ -561,12 +596,10 @@ func (w *Writer) WriteMessages(ctx context.Context, msgs ...Message) error {
 		return errors.New("kafka.(*Writer).WriteMessages: cannot create a kafka writer with a nil address")
 	}
 
-	w.group.Add(1)
-	defer w.group.Done()
-
-	if w.isClosed() {
+	if !w.enter() {
 		return io.ErrClosedPipe
 	}
+	defer w.leave()
 
 	if len(msgs) == 0 {
 		return nil
@@ -702,7 +735,8 @@ func (w *Writer) partitions(ctx context.Context, topic string) (int, error) {
 	// It is expected that the transport will optimize this request by
 	// caching recent results (the kafka.Transport types does).
 	r, err := client.transport().RoundTrip(ctx, client.Addr, &metadataAPI.Request{
-		TopicNames: []string{topic},
+		TopicNames:             []string{topic},
+		AllowAutoTopicCreation: w.AllowAutoTopicCreation,
 	})
 	if err != nil {
 		return 0, err
@@ -717,14 +751,6 @@ func (w *Writer) partitions(ctx context.Context, topic string) (int, error) {
 		}
 	}
 	return 0, UnknownTopicOrPartition
-}
-
-func (w *Writer) markClosed() {
-	atomic.StoreUint32(&w.closed, 1)
-}
-
-func (w *Writer) isClosed() bool {
-	return atomic.LoadUint32(&w.closed) != 0
 }
 
 func (w *Writer) client(timeout time.Duration) *Client {
@@ -866,8 +892,11 @@ func (w *Writer) chooseTopic(msg Message) (string, error) {
 type batchQueue struct {
 	queue []*writeBatch
 
-	mutex sync.Mutex
-	cond  sync.Cond
+	// Pointers are used here to make `go vet` happy, and avoid copying mutexes.
+	// It may be better to revert these to non-pointers and avoid the copies in
+	// a different way.
+	mutex *sync.Mutex
+	cond  *sync.Cond
 
 	closed bool
 }
@@ -914,9 +943,11 @@ func (b *batchQueue) Close() {
 func newBatchQueue(initialSize int) batchQueue {
 	bq := batchQueue{
 		queue: make([]*writeBatch, 0, initialSize),
+		mutex: &sync.Mutex{},
+		cond:  &sync.Cond{},
 	}
 
-	bq.cond.L = &bq.mutex
+	bq.cond.L = bq.mutex
 
 	return bq
 }
@@ -930,8 +961,6 @@ type partitionWriter struct {
 	mutex     sync.Mutex
 	currBatch *writeBatch
 
-	group sync.WaitGroup
-
 	// reference to the writer that owns this batch. Used for the produce logic
 	// as well as stat tracking
 	w *Writer
@@ -943,12 +972,7 @@ func newPartitionWriter(w *Writer, key topicPartition) *partitionWriter {
 		queue: newBatchQueue(10),
 		w:     w,
 	}
-	go func() {
-		writer.group.Add(1)
-		defer writer.group.Done()
-		writer.writeBatches()
-	}()
-
+	w.spawn(writer.writeBatches)
 	return writer
 }
 
@@ -964,14 +988,10 @@ func (ptw *partitionWriter) writeBatches() {
 		}
 
 		ptw.writeBatch(batch)
-
 	}
 }
 
 func (ptw *partitionWriter) writeMessages(msgs []Message, indexes []int32) map[*writeBatch][]int32 {
-	ptw.group.Add(1)
-	defer ptw.group.Done()
-
 	ptw.mutex.Lock()
 	defer ptw.mutex.Unlock()
 
@@ -1013,11 +1033,7 @@ func (ptw *partitionWriter) writeMessages(msgs []Message, indexes []int32) map[*
 // ptw.w can be accessed here because this is called with the lock ptw.mutex already held.
 func (ptw *partitionWriter) newWriteBatch() *writeBatch {
 	batch := newWriteBatch(time.Now(), ptw.w.batchTimeout())
-	ptw.group.Add(1)
-	go func() {
-		defer ptw.group.Done()
-		ptw.awaitBatch(batch)
-	}()
+	ptw.w.spawn(func() { ptw.awaitBatch(batch) })
 	return batch
 }
 
@@ -1144,9 +1160,8 @@ func (ptw *partitionWriter) close() {
 		ptw.currBatch = nil
 		batch.trigger()
 	}
-	ptw.queue.Close()
 
-	ptw.group.Wait()
+	ptw.queue.Close()
 }
 
 type writeBatch struct {
