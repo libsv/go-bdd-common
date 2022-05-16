@@ -19,7 +19,7 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/toorop/go-bitcoind v0.0.0-20201025081558-87ada228a807
 	github.com/yazgazan/jaydiff v0.3.1
-	google.golang.org/grpc v1.40.0
+	google.golang.org/grpc v1.46.2
 	gopkg.in/yaml.v2 v2.4.0
 )
 
@@ -62,6 +62,6 @@ require (
 	golang.org/x/sys v0.0.0-20210616094352-59db8d763f22 // indirect
 	golang.org/x/text v0.3.4 // indirect
 	google.golang.org/genproto v0.0.0-20201110150050-8816d57aaa9a // indirect
-	google.golang.org/protobuf v1.26.0 // indirect
+	google.golang.org/protobuf v1.27.1 // indirect
 	gopkg.in/ini.v1 v1.57.0 // indirect
 )
