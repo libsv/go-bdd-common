@@ -263,7 +263,7 @@ func (s *Suite) takeSnapshot() {
 }
 
 func kakfaReady(context.Context) error {
-	conn, err := kafka.Dial("tcp", "0.0.0.0:9092")
+	conn, err := kafka.Dial("tcp", "localhost:29092")
 	if err != nil {
 		return err
 	}
