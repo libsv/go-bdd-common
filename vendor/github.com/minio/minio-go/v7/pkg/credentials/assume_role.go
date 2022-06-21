@@ -18,6 +18,7 @@
 package credentials
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/xml"
 	"errors"
@@ -93,6 +94,8 @@ type STSAssumeRoleOptions struct {
 	AccessKey string
 	SecretKey string
 
+	Policy string // Optional to assign a policy to the assumed role
+
 	Location        string // Optional commonly needed with AWS STS.
 	DurationSeconds int    // Optional defaults to 1 hour.
 
@@ -156,6 +159,9 @@ func getAssumeRoleCredentials(clnt *http.Client, endpoint string, opts STSAssume
 	} else {
 		v.Set("DurationSeconds", strconv.Itoa(defaultDurationSeconds))
 	}
+	if opts.Policy != "" {
+		v.Set("Policy", opts.Policy)
+	}
 
 	u, err := url.Parse(endpoint)
 	if err != nil {
@@ -185,9 +191,19 @@ func getAssumeRoleCredentials(clnt *http.Client, endpoint string, opts STSAssume
 	defer closeResponse(resp)
 	if resp.StatusCode != http.StatusOK {
 		var errResp ErrorResponse
-		_, err = xmlDecodeAndBody(resp.Body, &errResp)
+		buf, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			return AssumeRoleResponse{}, err
+		}
+		_, err = xmlDecodeAndBody(bytes.NewReader(buf), &errResp)
+		if err != nil {
+			var s3Err Error
+			if _, err = xmlDecodeAndBody(bytes.NewReader(buf), &s3Err); err != nil {
+				return AssumeRoleResponse{}, err
+			}
+			errResp.RequestID = s3Err.RequestID
+			errResp.STSError.Code = s3Err.Code
+			errResp.STSError.Message = s3Err.Message
 		}
 		return AssumeRoleResponse{}, errResp
 	}
