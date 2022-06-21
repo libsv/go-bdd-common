@@ -173,7 +173,7 @@ func (s *Suite) initTestSuite(ctx *godog.TestSuiteContext) {
 		fmt.Println("environment setup")
 		var err error
 		if s.serviceName != "sars" {
-			fmt.Println("dialing service: ", s.serviceName)
+			fmt.Println("dialling service: ", s.serviceName)
 			grpcClientConn, err = grpc.Dial(
 				fmt.Sprintf(":3%s", s.servicePort[1:]),
 				grpc.WithInsecure(),

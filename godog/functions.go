@@ -26,6 +26,8 @@ import (
 	"github.com/libsv/go-bk/wif"
 	"github.com/libsv/go-bt/v2"
 	"github.com/libsv/go-bt/v2/bscript"
+
+	"github.com/libsv/go-bt/v2/unlocker"
 	"github.com/minio/minio-go/v7"
 	"github.com/oliveagle/jsonpath"
 	"github.com/pkg/errors"
@@ -617,7 +619,7 @@ func IUseTheOutputsOfTransactionAsInputs(ctx *Context) func(int) error {
 
 func TheTransactionIsSignedByAccount(ctx *Context) func(int) error {
 	return func(n int) error {
-		if err := ctx.BTC.WorkingTX.TX.UnlockAll(context.Background(), &bt.LocalUnlockerGetter{
+		if err := ctx.BTC.WorkingTX.TX.FillAllInputs(context.Background(), &unlocker.Getter{
 			PrivateKey: ctx.BTC.Accounts[n].WIF.PrivKey,
 		}); err != nil {
 			return err

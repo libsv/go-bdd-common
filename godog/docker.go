@@ -105,7 +105,7 @@ func (s *Suite) initDeps() []string {
 }
 
 func (s *Suite) teardownEnv() {
-	fmt.Println("tearing down containers to provide determinitic test env")
+	fmt.Println("tearing down containers to provide deterministic test env")
 	cc, err := s.dc.ContainerList(context.Background(), types.ContainerListOptions{})
 	if err != nil {
 		log.Fatal("failed to list docker containers ", err)
