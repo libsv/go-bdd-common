@@ -40,7 +40,7 @@ const (
 	// ReplicationStatusPending indicates replication is pending
 	ReplicationStatusPending ReplicationStatus = "PENDING"
 	// ReplicationStatusComplete indicates replication completed ok
-	ReplicationStatusComplete ReplicationStatus = "COMPLETE"
+	ReplicationStatusComplete ReplicationStatus = "COMPLETED"
 	// ReplicationStatusFailed indicates replication failed
 	ReplicationStatusFailed ReplicationStatus = "FAILED"
 	// ReplicationStatusReplica indicates object is a replica of a source
@@ -229,7 +229,8 @@ func (a completedParts) Less(i, j int) bool { return a[i].PartNumber < a[j].Part
 //
 // NOTE: Upon errors during upload multipart operation is entirely aborted.
 func (c *Client) PutObject(ctx context.Context, bucketName, objectName string, reader io.Reader, objectSize int64,
-	opts PutObjectOptions) (info UploadInfo, err error) {
+	opts PutObjectOptions,
+) (info UploadInfo, err error) {
 	if objectSize < 0 && opts.DisableMultipart {
 		return UploadInfo{}, errors.New("object size must be provided with disable multipart upload")
 	}
