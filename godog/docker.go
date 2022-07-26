@@ -204,7 +204,7 @@ func (s *Suite) initMocks() []string {
 	cont, err := s.dc.ContainerCreate(
 		context.Background(),
 		&container.Config{
-			Image: "tigh/grpc-mock:latest",
+			Image: "chainkins/grpc_mock:latest",
 			ExposedPorts: nat.PortSet{
 				nat.Port("22222"): {},
 			},
