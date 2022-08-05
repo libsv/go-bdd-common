@@ -138,8 +138,9 @@ func NewSuite(opts Options) *Suite {
 		kafkaInit:   opts.InitKafka,
 		dbCfg:       opts.DatabaseConfig,
 
-		tsInit: opts.TestSuiteInitializer,
-		scInit: opts.ScenarioInitializer,
+		tsInit:  opts.TestSuiteInitializer,
+		scInit:  opts.ScenarioInitializer,
+		volumes: opts.Volumes,
 	}
 
 	if opts.ConcurrencyOverride > 0 {
