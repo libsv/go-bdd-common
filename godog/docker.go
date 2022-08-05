@@ -42,6 +42,20 @@ func (s *Suite) initEnv() {
 	s.env.Vars = append(s.env.Vars, vars...)
 	s.env.Vars = append(s.env.Vars, env...)
 
+	var mounts []mount.Mount
+	if s.volumes != nil && len(s.volumes) > 0 {
+		for _, v := range s.volumes {
+			s := strings.Split(v, ":")
+			// create host path if doesn't exist otherwise does nothing
+			_ = os.MkdirAll(s[0], 0700)
+			mounts = append(mounts, mount.Mount{
+				Type:   mount.TypeBind,
+				Source: s[0],
+				Target: s[1],
+			})
+		}
+	}
+
 	// Init test container
 	cont, err := s.dc.ContainerCreate(
 		context.Background(),
@@ -63,6 +77,7 @@ func (s *Suite) initEnv() {
 					HostPort: fmt.Sprintf("3%s", s.servicePort[1:]),
 				}},
 			},
+			Mounts: mounts,
 		},
 		&network.NetworkingConfig{},
 		nil,

@@ -69,7 +69,8 @@ type Suite struct {
 
 	dc *client.Client
 
-	env Env
+	env     Env
+	volumes []string
 }
 
 // Options config options for the test suite
@@ -104,6 +105,10 @@ type Options struct {
 	// ScenarioInitializer an optional handler func for adding performing service specific
 	// prep work for scenarios.
 	ScenarioInitializer func(*godog.ScenarioContext, *Context)
+
+	// Volumes is an array of volumes that the target test container should mount to from the host machine.
+	// an example would be []string{"/test/thing:/root/thing","/another:/root/another"}
+	Volumes []string
 }
 
 // DatabaseConfig the config for the local database
