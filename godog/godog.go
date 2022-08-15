@@ -19,6 +19,7 @@ import (
 
 	_ "github.com/lib/pq" // database driver
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 )
 
@@ -42,6 +43,20 @@ var godogOpts = godog.Options{
 	Strict: true,
 }
 
+// User give a default host and default port
+// The function will parse custom.host, custom.port from command line
+// If these are specified in command line, the value return will be overwritten
+func GetServiceURL(defaultHost, defaultPort string) (string, string) {
+	h := defaultHost
+	p := defaultPort
+
+	flag.StringVar(&h, "custom.host", defaultHost, `specify custom host for the testing service`)
+	flag.StringVar(&p, "custom.port", defaultPort, `specify custom port for the testing service`)
+	flag.Parse()
+
+	return h, p
+}
+
 func init() {
 	godog.BindCommandLineFlags("godog.", &godogOpts)
 }
@@ -55,7 +70,9 @@ var (
 // Suite the test suite to be ran
 type Suite struct {
 	serviceName string
+	serviceHost string
 	servicePort string
+	envInit     bool
 	btcInit     bool
 	s3Init      bool
 	kafkaInit   bool
@@ -77,8 +94,13 @@ type Suite struct {
 type Options struct {
 	// ServiceName the name of the service being tested
 	ServiceName string
+	// ServiceHost the host for the service to be ran on
+	ServiceHost string
 	// ServicePort the port for the service to be ran on
 	ServicePort string
+
+	// InitEnv if true a the environment will be setup
+	InitEnv bool
 	// InitBitcoinBackend if true a bitcoin client will be created
 	InitBitcoinBackend bool
 	// InitS3 if true a minio client will be created
@@ -132,7 +154,9 @@ func NewSuite(opts Options) *Suite {
 
 	s := &Suite{
 		serviceName: opts.ServiceName,
+		serviceHost: opts.ServiceHost,
 		servicePort: opts.ServicePort,
+		envInit:     opts.InitEnv,
 		btcInit:     opts.InitBitcoinBackend,
 		s3Init:      opts.InitS3,
 		kafkaInit:   opts.InitKafka,
@@ -175,14 +199,17 @@ func (s *Suite) Run() int {
 
 func (s *Suite) initTestSuite(ctx *godog.TestSuiteContext) {
 	ctx.BeforeSuite(func() {
-		s.initEnv()
-		fmt.Println("environment setup")
+		if s.envInit {
+			fmt.Println("environment setup")
+			s.initEnv()
+		}
+
 		var err error
 		if s.serviceName != "sars" {
-			fmt.Println("dialling service: ", s.serviceName)
+			fmt.Printf("dialling %s %s:%s ", s.serviceName, s.serviceHost, s.servicePort)
 			grpcClientConn, err = grpc.Dial(
-				fmt.Sprintf(":3%s", s.servicePort[1:]),
-				grpc.WithInsecure(),
+				fmt.Sprintf("%s:%s", s.serviceHost, s.servicePort),
+				grpc.WithTransportCredentials(insecure.NewCredentials()),
 				grpc.WithBlock(),
 				grpc.WithKeepaliveParams(keepalive.ClientParameters{
 					Time:    31 * time.Second,
@@ -192,7 +219,7 @@ func (s *Suite) initTestSuite(ctx *godog.TestSuiteContext) {
 			if err != nil {
 				log.Fatal(err)
 			}
-			fmt.Println("contacted service: ", s.serviceName)
+			fmt.Printf("contacted %s %s:%s ", s.serviceName, s.serviceHost, s.servicePort)
 		}
 
 		if s.btcInit {
@@ -245,9 +272,9 @@ func (s *Suite) initTestSuite(ctx *godog.TestSuiteContext) {
 	})
 
 	if s.tsInit != nil {
+		fmt.Println("Initialising Test suite setup")
 		s.tsInit(ctx)
 	}
-	fmt.Println("init setup")
 	// Allow any user `AfterSuite` to be loaded in before tearing down the environment
 	// incase the user wants to do perform some cleanup operations.
 	ctx.AfterSuite(func() {
@@ -261,7 +288,9 @@ func (s *Suite) initTestSuite(ctx *godog.TestSuiteContext) {
 				fmt.Println(err)
 			}
 		}
-		s.teardownEnv()
+		if s.envInit {
+			s.teardownEnv()
+		}
 	})
 }
 
@@ -316,8 +345,8 @@ func (s *Suite) initScenario(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the GRPC code should be (\w*)$`, TheGRPCCodeShouldBe(testCtx))
 
 	// HTTP
-	ctx.Step(`^I make a (GET|POST|PATCH|DELETE) request to "([^"]*)"$`, IMakeAHTTPRequestTo(testCtx, fmt.Sprintf(":3%s", s.servicePort[1:])))
-	ctx.Step(`^I make a (GET|POST|PATCH|DELETE) request to "([^"]*)" with JSON "([^"]*)"$`, IMakeAHTTPRequestToWithData(testCtx, fmt.Sprintf(":3%s", s.servicePort[1:])))
+	ctx.Step(`^I make a (GET|POST|PATCH|DELETE) request to "([^"]*)"$`, IMakeAHTTPRequestTo(testCtx, fmt.Sprintf("%s:%s", s.serviceHost, s.servicePort)))
+	ctx.Step(`^I make a (GET|POST|PATCH|DELETE) request to "([^"]*)" with JSON "([^"]*)"$`, IMakeAHTTPRequestToWithData(testCtx, fmt.Sprintf("%s:%s", s.serviceHost, s.servicePort)))
 	ctx.Step(`^the HTTP response code should be (\d*)$`, TheHTTPResponseCodeShouldBe(testCtx))
 
 	// Platform
