@@ -65,7 +65,7 @@ func (s *Suite) initEnv() {
 				Test: []string{"NONE"},
 			},
 			ExposedPorts: nat.PortSet{
-				nat.Port(s.servicePort[1:]): {},
+				nat.Port(s.servicePort): {},
 			},
 			Env: s.env.Vars,
 		},
@@ -73,15 +73,15 @@ func (s *Suite) initEnv() {
 			AutoRemove:  true,
 			NetworkMode: DockerNetwork,
 			PortBindings: nat.PortMap{
-				nat.Port(s.servicePort[1:]): []nat.PortBinding{{
-					HostPort: fmt.Sprintf("3%s", s.servicePort[1:]),
+				nat.Port(s.servicePort): []nat.PortBinding{{
+					HostPort: fmt.Sprintf("3%s", s.servicePort),
 				}},
 			},
 			Mounts: mounts,
 		},
 		&network.NetworkingConfig{},
 		nil,
-		fmt.Sprintf("%s-test", s.serviceName),
+		fmt.Sprintf("test-%s", s.serviceName),
 	)
 	if err != nil {
 		log.Fatal(err)
