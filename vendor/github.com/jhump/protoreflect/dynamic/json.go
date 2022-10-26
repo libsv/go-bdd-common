@@ -60,7 +60,7 @@ var wellKnownTypeNames = map[string]struct{}{
 // This method is convenient shorthand for invoking MarshalJSONPB with a default
 // (zero value) marshaler:
 //
-//    m.MarshalJSONPB(&jsonpb.Marshaler{})
+//	m.MarshalJSONPB(&jsonpb.Marshaler{})
 //
 // So enums are serialized using enum value name strings, and values that are
 // not present (including those with default/zero value for messages defined in
@@ -80,7 +80,7 @@ func (m *Message) MarshalJSON() ([]byte, error) {
 // This method is convenient shorthand for invoking MarshalJSONPB with a default
 // (zero value) marshaler:
 //
-//    m.MarshalJSONPB(&jsonpb.Marshaler{Indent: "  "})
+//	m.MarshalJSONPB(&jsonpb.Marshaler{Indent: "  "})
 //
 // So enums are serialized using enum value name strings, and values that are
 // not present (including those with default/zero value for messages defined in
@@ -368,7 +368,7 @@ func marshalKnownFieldMapEntryJSON(b *indentBuffer, mk interface{}, vfd *desc.Fi
 	default:
 		return fmt.Errorf("invalid map key value: %v (%v)", mk, rk.Type())
 	}
-	err := writeString(b, strkey)
+	err := writeJsonString(b, strkey)
 	if err != nil {
 		return err
 	}
@@ -497,7 +497,7 @@ func writeJsonString(b *indentBuffer, s string) error {
 // This method is shorthand for invoking UnmarshalJSONPB with a default (zero
 // value) unmarshaler:
 //
-//    m.UnmarshalMergeJSONPB(&jsonpb.Unmarshaler{}, js)
+//	m.UnmarshalMergeJSONPB(&jsonpb.Unmarshaler{}, js)
 //
 // So unknown fields will result in an error, and no provided jsonpb.AnyResolver
 // will be used when parsing google.protobuf.Any messages.
@@ -674,8 +674,10 @@ func isWellKnownValue(fd *desc.FieldDescriptor) bool {
 }
 
 func isWellKnownListValue(fd *desc.FieldDescriptor) bool {
+	// we look for ListValue; but we also look for Value, which can be assigned a ListValue
 	return !fd.IsRepeated() && fd.GetType() == descriptor.FieldDescriptorProto_TYPE_MESSAGE &&
-		fd.GetMessageType().GetFullyQualifiedName() == "google.protobuf.ListValue"
+		(fd.GetMessageType().GetFullyQualifiedName() == "google.protobuf.ListValue" ||
+			fd.GetMessageType().GetFullyQualifiedName() == "google.protobuf.Value")
 }
 
 func unmarshalJsField(fd *desc.FieldDescriptor, r *jsReader, mf *MessageFactory, opts *jsonpb.Unmarshaler) (interface{}, error) {
