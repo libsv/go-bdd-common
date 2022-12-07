@@ -11,7 +11,7 @@ require (
 	github.com/jhump/protoreflect v1.14.0
 	github.com/lib/pq v1.10.3
 	github.com/libsv/go-bk v0.1.6
-	github.com/libsv/go-bt/v2 v2.1.0
+	github.com/libsv/go-bt/v2 v2.1.1
 	github.com/minio/minio-go/v7 v7.0.45
 	github.com/oliveagle/jsonpath v0.0.0-20180606110733-2e52cf6e6852
 	github.com/pkg/errors v0.9.1
