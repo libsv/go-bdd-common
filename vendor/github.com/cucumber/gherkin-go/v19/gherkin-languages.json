@@ -26,7 +26,7 @@
     "name": "Afrikaans",
     "native": "Afrikaans",
     "rule": [
-      "Rule"
+      "Regel"
     ],
     "scenario": [
       "Voorbeeld",
@@ -494,7 +494,7 @@
     "name": "Czech",
     "native": "Česky",
     "rule": [
-      "Rule"
+      "Pravidlo"
     ],
     "scenario": [
       "Příklad",
@@ -1078,7 +1078,9 @@
       "Ejemplos"
     ],
     "feature": [
-      "Característica"
+      "Característica",
+      "Necesidad del negocio",
+      "Requisito"
     ],
     "given": [
       "* ",
@@ -1090,7 +1092,8 @@
     "name": "Spanish",
     "native": "español",
     "rule": [
-      "Regla"
+      "Regla",
+      "Regla de negocio"
     ],
     "scenario": [
       "Ejemplo",
@@ -1133,14 +1136,14 @@
     "name": "Estonian",
     "native": "eesti keel",
     "rule": [
-      "Rule"
+      "Reegel"
     ],
     "scenario": [
       "Juhtum",
       "Stsenaarium"
     ],
     "scenarioOutline": [
-      "Raamstjuhtum",
+      "Raamjuhtum",
       "Raamstsenaarium"
     ],
     "then": [
@@ -1471,7 +1474,7 @@
     "name": "Hebrew",
     "native": "עברית",
     "rule": [
-      "Rule"
+      "כלל"
     ],
     "scenario": [
       "דוגמא",
@@ -1672,7 +1675,7 @@
     "name": "Hungarian",
     "native": "magyar",
     "rule": [
-      "Rule"
+      "Szabály"
     ],
     "scenario": [
       "Példa",
@@ -1804,7 +1807,9 @@
       "Esempi"
     ],
     "feature": [
-      "Funzionalità"
+      "Funzionalità",
+      "Esigenza di Business",
+      "Abilità"
     ],
     "given": [
       "* ",
@@ -1816,7 +1821,7 @@
     "name": "Italian",
     "native": "italiano",
     "rule": [
-      "Rule"
+      "Regola"
     ],
     "scenario": [
       "Esempio",
@@ -2729,14 +2734,15 @@
     "name": "Russian",
     "native": "русский",
     "rule": [
-      "Rule"
+      "Правило"
     ],
     "scenario": [
       "Пример",
       "Сценарий"
     ],
     "scenarioOutline": [
-      "Структура сценария"
+      "Структура сценария",
+      "Шаблон сценария"
     ],
     "then": [
       "* ",
@@ -2997,7 +3003,7 @@
     "name": "Swedish",
     "native": "Svenska",
     "rule": [
-      "Rule"
+      "Regel"
     ],
     "scenario": [
       "Scenario"
@@ -3110,7 +3116,7 @@
       "เมื่อ "
     ]
   },
-  "tl": {
+  "te": {
     "and": [
       "* ",
       "మరియు "

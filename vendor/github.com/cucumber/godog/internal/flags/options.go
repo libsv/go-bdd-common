@@ -1,7 +1,9 @@
 package flags
 
 import (
+	"context"
 	"io"
+	"testing"
 )
 
 // Options are suite run options
@@ -56,4 +58,23 @@ type Options struct {
 
 	// Where it should print formatter output
 	Output io.Writer
+
+	// DefaultContext is used as initial context instead of context.Background().
+	DefaultContext context.Context
+
+	// TestingT runs scenarios as subtests.
+	TestingT *testing.T
+
+	// FeatureContents allows passing in each feature manually
+	// where the contents of each feature is stored as a byte slice
+	// in a map entry
+	FeatureContents []Feature
+
+	// ShowHelp enables suite to show CLI flags usage help and exit.
+	ShowHelp bool
+}
+
+type Feature struct {
+	Name     string
+	Contents []byte
 }

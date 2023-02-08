@@ -1,7 +1,7 @@
 package models
 
 import (
-	"github.com/cucumber/messages-go/v10"
+	"github.com/cucumber/messages-go/v16"
 )
 
 // Feature is an internal object to group together
@@ -13,11 +13,34 @@ type Feature struct {
 	Content []byte
 }
 
-// FindScenario ...
-func (f Feature) FindScenario(astScenarioID string) *messages.GherkinDocument_Feature_Scenario {
+// FindRule returns the rule to which the given scenario belongs
+func (f Feature) FindRule(astScenarioID string) *messages.Rule {
 	for _, child := range f.GherkinDocument.Feature.Children {
-		if sc := child.GetScenario(); sc != nil && sc.Id == astScenarioID {
+		if ru := child.Rule; ru != nil {
+			if rc := child.Rule; rc != nil {
+				for _, rcc := range rc.Children {
+					if sc := rcc.Scenario; sc != nil && sc.Id == astScenarioID {
+						return ru
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// FindScenario returns the scenario in the feature or in a rule in the feature
+func (f Feature) FindScenario(astScenarioID string) *messages.Scenario {
+	for _, child := range f.GherkinDocument.Feature.Children {
+		if sc := child.Scenario; sc != nil && sc.Id == astScenarioID {
 			return sc
+		}
+		if rc := child.Rule; rc != nil {
+			for _, rcc := range rc.Children {
+				if sc := rcc.Scenario; sc != nil && sc.Id == astScenarioID {
+					return sc
+				}
+			}
 		}
 	}
 
@@ -25,16 +48,28 @@ func (f Feature) FindScenario(astScenarioID string) *messages.GherkinDocument_Fe
 }
 
 // FindBackground ...
-func (f Feature) FindBackground(astScenarioID string) *messages.GherkinDocument_Feature_Background {
-	var bg *messages.GherkinDocument_Feature_Background
+func (f Feature) FindBackground(astScenarioID string) *messages.Background {
+	var bg *messages.Background
 
 	for _, child := range f.GherkinDocument.Feature.Children {
-		if tmp := child.GetBackground(); tmp != nil {
+		if tmp := child.Background; tmp != nil {
 			bg = tmp
 		}
 
-		if sc := child.GetScenario(); sc != nil && sc.Id == astScenarioID {
+		if sc := child.Scenario; sc != nil && sc.Id == astScenarioID {
 			return bg
+		}
+
+		if ru := child.Rule; ru != nil {
+			for _, rc := range ru.Children {
+				if tmp := rc.Background; tmp != nil {
+					bg = tmp
+				}
+
+				if sc := rc.Scenario; sc != nil && sc.Id == astScenarioID {
+					return bg
+				}
+			}
 		}
 	}
 
@@ -42,13 +77,26 @@ func (f Feature) FindBackground(astScenarioID string) *messages.GherkinDocument_
 }
 
 // FindExample ...
-func (f Feature) FindExample(exampleAstID string) (*messages.GherkinDocument_Feature_Scenario_Examples, *messages.GherkinDocument_Feature_TableRow) {
+func (f Feature) FindExample(exampleAstID string) (*messages.Examples, *messages.TableRow) {
 	for _, child := range f.GherkinDocument.Feature.Children {
-		if sc := child.GetScenario(); sc != nil {
+		if sc := child.Scenario; sc != nil {
 			for _, example := range sc.Examples {
 				for _, row := range example.TableBody {
 					if row.Id == exampleAstID {
 						return example, row
+					}
+				}
+			}
+		}
+		if ru := child.Rule; ru != nil {
+			for _, rc := range ru.Children {
+				if sc := rc.Scenario; sc != nil {
+					for _, example := range sc.Examples {
+						for _, row := range example.TableBody {
+							if row.Id == exampleAstID {
+								return example, row
+							}
+						}
 					}
 				}
 			}
@@ -59,18 +107,39 @@ func (f Feature) FindExample(exampleAstID string) (*messages.GherkinDocument_Fea
 }
 
 // FindStep ...
-func (f Feature) FindStep(astStepID string) *messages.GherkinDocument_Feature_Step {
+func (f Feature) FindStep(astStepID string) *messages.Step {
 	for _, child := range f.GherkinDocument.Feature.Children {
-		if sc := child.GetScenario(); sc != nil {
-			for _, step := range sc.GetSteps() {
+
+		if ru := child.Rule; ru != nil {
+			for _, ch := range ru.Children {
+				if sc := ch.Scenario; sc != nil {
+					for _, step := range sc.Steps {
+						if step.Id == astStepID {
+							return step
+						}
+					}
+				}
+
+				if bg := ch.Background; bg != nil {
+					for _, step := range bg.Steps {
+						if step.Id == astStepID {
+							return step
+						}
+					}
+				}
+			}
+		}
+
+		if sc := child.Scenario; sc != nil {
+			for _, step := range sc.Steps {
 				if step.Id == astStepID {
 					return step
 				}
 			}
 		}
 
-		if bg := child.GetBackground(); bg != nil {
-			for _, step := range bg.GetSteps() {
+		if bg := child.Background; bg != nil {
+			for _, step := range bg.Steps {
 				if step.Id == astStepID {
 					return step
 				}
