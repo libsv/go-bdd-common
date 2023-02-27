@@ -8,7 +8,7 @@ require (
 	github.com/docker/go-connections v0.4.0
 	github.com/golang/protobuf v1.5.2
 	github.com/google/uuid v1.3.0
-	github.com/jhump/protoreflect v1.14.1
+	github.com/jhump/protoreflect v1.15.0
 	github.com/lib/pq v1.10.3
 	github.com/libsv/go-bk v0.1.6
 	github.com/libsv/go-bt/v2 v2.1.1
@@ -25,6 +25,7 @@ require (
 
 require (
 	github.com/Microsoft/go-winio v0.5.0 // indirect
+	github.com/bufbuild/protocompile v0.2.1-0.20230123224550-da57cd758c2f // indirect
 	github.com/cucumber/gherkin-go/v11 v11.0.0 // indirect
 	github.com/cucumber/messages-go/v10 v10.0.3 // indirect
 	github.com/docker/distribution v2.7.1+incompatible // indirect
@@ -57,12 +58,12 @@ require (
 	github.com/rs/xid v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.9.0 // indirect
 	golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa // indirect
-	golang.org/x/net v0.5.0 // indirect
-	golang.org/x/sys v0.4.0 // indirect
-	golang.org/x/text v0.6.0 // indirect
+	golang.org/x/net v0.7.0 // indirect
+	golang.org/x/sys v0.5.0 // indirect
+	golang.org/x/text v0.7.0 // indirect
 	golang.org/x/time v0.0.0-20200630173020-3af7569d3a1e // indirect
 	google.golang.org/genproto v0.0.0-20230110181048-76db0878b65f // indirect
-	google.golang.org/protobuf v1.28.1 // indirect
+	google.golang.org/protobuf v1.28.2-0.20220831092852-f930b1dc76e8 // indirect
 	gopkg.in/ini.v1 v1.66.6 // indirect
 	gotest.tools/v3 v3.0.3 // indirect
 )
