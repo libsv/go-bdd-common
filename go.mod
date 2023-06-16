@@ -6,7 +6,7 @@ require (
 	github.com/cucumber/godog v0.11.0
 	github.com/docker/docker v20.10.23+incompatible
 	github.com/docker/go-connections v0.4.0
-	github.com/golang/protobuf v1.5.2
+	github.com/golang/protobuf v1.5.3
 	github.com/google/uuid v1.3.0
 	github.com/jhump/protoreflect v1.14.1
 	github.com/lib/pq v1.10.3
@@ -19,7 +19,7 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/toorop/go-bitcoind v0.0.0-20201025081558-87ada228a807
 	github.com/yazgazan/jaydiff v0.3.1
-	google.golang.org/grpc v1.53.0
+	google.golang.org/grpc v1.56.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
@@ -61,8 +61,8 @@ require (
 	golang.org/x/sys v0.8.0 // indirect
 	golang.org/x/text v0.9.0 // indirect
 	golang.org/x/time v0.0.0-20200630173020-3af7569d3a1e // indirect
-	google.golang.org/genproto v0.0.0-20230110181048-76db0878b65f // indirect
-	google.golang.org/protobuf v1.28.1 // indirect
+	google.golang.org/genproto v0.0.0-20230410155749-daa745c078e1 // indirect
+	google.golang.org/protobuf v1.30.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gotest.tools/v3 v3.0.3 // indirect
 )
