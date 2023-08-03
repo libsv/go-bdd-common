@@ -11,7 +11,7 @@ require (
 	github.com/jhump/protoreflect v1.14.1
 	github.com/lib/pq v1.10.3
 	github.com/libsv/go-bk v0.1.6
-	github.com/libsv/go-bt/v2 v2.1.1
+	github.com/libsv/go-bt/v2 v2.2.2
 	github.com/minio/minio-go/v7 v7.0.61
 	github.com/oliveagle/jsonpath v0.0.0-20180606110733-2e52cf6e6852
 	github.com/pkg/errors v0.9.1
@@ -54,6 +54,7 @@ require (
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.0.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.15 // indirect
+	github.com/rogpeppe/go-internal v1.11.0 // indirect
 	github.com/rs/xid v1.5.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	golang.org/x/crypto v0.11.0 // indirect
