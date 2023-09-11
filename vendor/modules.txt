@@ -5,11 +5,11 @@ github.com/Microsoft/go-winio/pkg/guid
 # github.com/bufbuild/protocompile v0.6.0
 ## explicit; go 1.18
 github.com/bufbuild/protocompile/protoutil
-# github.com/cucumber/gherkin-go/v11 v11.0.0
-## explicit; go 1.13
-github.com/cucumber/gherkin-go/v11
-# github.com/cucumber/godog v0.11.0
-## explicit; go 1.15
+# github.com/cucumber/gherkin/go/v26 v26.2.0
+## explicit; go 1.19
+github.com/cucumber/gherkin/go/v26
+# github.com/cucumber/godog v0.13.0
+## explicit; go 1.16
 github.com/cucumber/godog
 github.com/cucumber/godog/colors
 github.com/cucumber/godog/formatters
@@ -21,9 +21,9 @@ github.com/cucumber/godog/internal/parser
 github.com/cucumber/godog/internal/storage
 github.com/cucumber/godog/internal/tags
 github.com/cucumber/godog/internal/utils
-# github.com/cucumber/messages-go/v10 v10.0.3
-## explicit; go 1.13
-github.com/cucumber/messages-go/v10
+# github.com/cucumber/messages/go/v21 v21.0.1
+## explicit; go 1.19
+github.com/cucumber/messages/go/v21
 # github.com/docker/distribution v2.7.1+incompatible
 ## explicit
 github.com/docker/distribution/digestset
@@ -64,12 +64,11 @@ github.com/dustin/go-humanize
 github.com/fatih/color
 # github.com/fsnotify/fsnotify v1.4.9
 ## explicit; go 1.13
-# github.com/gofrs/uuid v4.0.0+incompatible
+# github.com/gofrs/uuid v4.3.1+incompatible
 ## explicit
 github.com/gofrs/uuid
 # github.com/gogo/protobuf v1.3.2
 ## explicit; go 1.15
-github.com/gogo/protobuf/io
 github.com/gogo/protobuf/proto
 # github.com/golang/protobuf v1.5.3
 ## explicit; go 1.9
@@ -82,11 +81,11 @@ github.com/golang/protobuf/ptypes/timestamp
 # github.com/google/uuid v1.3.1
 ## explicit
 github.com/google/uuid
-# github.com/hashicorp/go-immutable-radix v1.3.0
+# github.com/hashicorp/go-immutable-radix v1.3.1
 ## explicit
 github.com/hashicorp/go-immutable-radix
-# github.com/hashicorp/go-memdb v1.3.0
-## explicit; go 1.12
+# github.com/hashicorp/go-memdb v1.3.4
+## explicit; go 1.13
 github.com/hashicorp/go-memdb
 # github.com/hashicorp/golang-lru v0.5.4
 ## explicit; go 1.12
@@ -120,6 +119,8 @@ github.com/klauspost/compress/zstd/internal/xxhash
 # github.com/klauspost/cpuid/v2 v2.2.5
 ## explicit; go 1.15
 github.com/klauspost/cpuid/v2
+# github.com/kr/text v0.2.0
+## explicit
 # github.com/lib/pq v1.10.3
 ## explicit; go 1.13
 github.com/lib/pq

@@ -7,14 +7,14 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/cucumber/messages-go/v10"
+	messages "github.com/cucumber/messages/go/v21"
 )
 
 // some snippet formatting regexps
-var snippetExprCleanup = regexp.MustCompile("([\\/\\[\\]\\(\\)\\\\^\\$\\.\\|\\?\\*\\+\\'])")
-var snippetExprQuoted = regexp.MustCompile("(\\W|^)\"(?:[^\"]*)\"(\\W|$)")
-var snippetMethodName = regexp.MustCompile("[^a-zA-Z\\_\\ ]")
-var snippetNumbers = regexp.MustCompile("(\\d+)")
+var snippetExprCleanup = regexp.MustCompile(`([\/\[\]\(\)\\^\$\.\|\?\*\+\'])`)
+var snippetExprQuoted = regexp.MustCompile(`(\W|^)"(?:[^"]*)"(\W|$)`)
+var snippetMethodName = regexp.MustCompile(`[^a-zA-Z\_\ ]`)
+var snippetNumbers = regexp.MustCompile(`(\d+)`)
 
 var snippetHelperFuncs = template.FuncMap{
 	"backticked": func(s string) string {
@@ -69,12 +69,12 @@ func (s undefinedSnippet) Args() (ret string) {
 	}
 
 	if s.argument != nil {
-		if s.argument.GetDocString() != nil {
-			args = append(args, "*messages.PickleStepArgument_PickleDocString")
+		if s.argument.DocString != nil {
+			args = append(args, "*godog.DocString")
 		}
 
-		if s.argument.GetDataTable() != nil {
-			args = append(args, "*messages.PickleStepArgument_PickleTable")
+		if s.argument.DataTable != nil {
+			args = append(args, "*godog.Table")
 		}
 	}
 
