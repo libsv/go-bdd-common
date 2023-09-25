@@ -206,7 +206,7 @@ github.com/pkg/errors
 # github.com/rs/xid v1.5.0
 ## explicit; go 1.12
 github.com/rs/xid
-# github.com/segmentio/kafka-go v0.4.42
+# github.com/segmentio/kafka-go v0.4.43
 ## explicit; go 1.15
 github.com/segmentio/kafka-go
 github.com/segmentio/kafka-go/compress
@@ -220,16 +220,20 @@ github.com/segmentio/kafka-go/protocol/addpartitionstotxn
 github.com/segmentio/kafka-go/protocol/alterclientquotas
 github.com/segmentio/kafka-go/protocol/alterconfigs
 github.com/segmentio/kafka-go/protocol/alterpartitionreassignments
+github.com/segmentio/kafka-go/protocol/alteruserscramcredentials
 github.com/segmentio/kafka-go/protocol/apiversions
 github.com/segmentio/kafka-go/protocol/consumer
 github.com/segmentio/kafka-go/protocol/createacls
 github.com/segmentio/kafka-go/protocol/createpartitions
 github.com/segmentio/kafka-go/protocol/createtopics
+github.com/segmentio/kafka-go/protocol/deleteacls
 github.com/segmentio/kafka-go/protocol/deletegroups
 github.com/segmentio/kafka-go/protocol/deletetopics
+github.com/segmentio/kafka-go/protocol/describeacls
 github.com/segmentio/kafka-go/protocol/describeclientquotas
 github.com/segmentio/kafka-go/protocol/describeconfigs
 github.com/segmentio/kafka-go/protocol/describegroups
+github.com/segmentio/kafka-go/protocol/describeuserscramcredentials
 github.com/segmentio/kafka-go/protocol/electleaders
 github.com/segmentio/kafka-go/protocol/endtxn
 github.com/segmentio/kafka-go/protocol/fetch
