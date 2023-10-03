@@ -91,7 +91,7 @@ github.com/hashicorp/go-memdb
 # github.com/hashicorp/golang-lru v0.5.4
 ## explicit; go 1.12
 github.com/hashicorp/golang-lru/simplelru
-# github.com/jhump/protoreflect v1.15.2
+# github.com/jhump/protoreflect v1.15.3
 ## explicit; go 1.18
 github.com/jhump/protoreflect/codec
 github.com/jhump/protoreflect/desc
