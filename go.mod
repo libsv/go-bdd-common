@@ -5,7 +5,7 @@ go 1.18
 require (
 	github.com/cucumber/godog v0.11.0
 	github.com/docker/docker v20.10.23+incompatible
-	github.com/docker/go-connections v0.4.0
+	github.com/docker/go-connections v0.5.0
 	github.com/golang/protobuf v1.5.3
 	github.com/google/uuid v1.3.1
 	github.com/jhump/protoreflect v1.15.3
