@@ -1,9 +1,12 @@
 package godog
 
 import (
+	"context"
+	"flag"
 	"fmt"
 	"go/build"
 	"io"
+	"io/fs"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -11,11 +14,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"testing"
 
-	"github.com/cucumber/messages-go/v10"
+	messages "github.com/cucumber/messages/go/v21"
 
 	"github.com/cucumber/godog/colors"
 	"github.com/cucumber/godog/formatters"
+	ifmt "github.com/cucumber/godog/internal/formatters"
 	"github.com/cucumber/godog/internal/models"
 	"github.com/cucumber/godog/internal/parser"
 	"github.com/cucumber/godog/internal/storage"
@@ -35,6 +40,9 @@ type runner struct {
 	randomSeed            int64
 	stopOnFailure, strict bool
 
+	defaultContext context.Context
+	testingT       *testing.T
+
 	features []*models.Feature
 
 	testSuiteInitializer testSuiteInitializer
@@ -51,7 +59,16 @@ func (r *runner) concurrent(rate int) (failed bool) {
 		fmt.SetStorage(r.storage)
 	}
 
-	testSuiteContext := TestSuiteContext{}
+	testSuiteContext := TestSuiteContext{
+		suite: &suite{
+			fmt:            r.fmt,
+			randomSeed:     r.randomSeed,
+			strict:         r.strict,
+			storage:        r.storage,
+			defaultContext: r.defaultContext,
+			testingT:       r.testingT,
+		},
+	}
 	if r.testSuiteInitializer != nil {
 		r.testSuiteInitializer(&testSuiteContext)
 	}
@@ -87,7 +104,7 @@ func (r *runner) concurrent(rate int) (failed bool) {
 				r.fmt.Feature(ft.GherkinDocument, ft.Uri, ft.Content)
 			}
 
-			go func(fail *bool, pickle *messages.Pickle) {
+			runPickle := func(fail *bool, pickle *messages.Pickle) {
 				defer func() {
 					<-queue // free a space in queue
 				}()
@@ -96,15 +113,11 @@ func (r *runner) concurrent(rate int) (failed bool) {
 					return
 				}
 
-				suite := &suite{
-					fmt:        r.fmt,
-					randomSeed: r.randomSeed,
-					strict:     r.strict,
-					storage:    r.storage,
-				}
+				// Copy base suite.
+				suite := *testSuiteContext.suite
 
 				if r.scenarioInitializer != nil {
-					sc := ScenarioContext{suite: suite}
+					sc := ScenarioContext{suite: &suite}
 					r.scenarioInitializer(&sc)
 				}
 
@@ -114,7 +127,15 @@ func (r *runner) concurrent(rate int) (failed bool) {
 					*fail = true
 					copyLock.Unlock()
 				}
-			}(&failed, &pickle)
+			}
+
+			if rate == 1 {
+				// Running within the same goroutine for concurrency 1
+				// to preserve original stacks and simplify debugging.
+				runPickle(&failed, &pickle)
+			} else {
+				go runPickle(&failed, &pickle)
+			}
 		}
 	}
 
@@ -141,28 +162,49 @@ func runWithOptions(suiteName string, runner runner, opt Options) int {
 		output = opt.Output
 	}
 
-	if formatterParts := strings.SplitN(opt.Format, ":", 2); len(formatterParts) > 1 {
-		f, err := os.Create(formatterParts[1])
-		if err != nil {
-			err = fmt.Errorf(
-				`couldn't create file with name: "%s", error: %s`,
-				formatterParts[1], err.Error(),
-			)
-			fmt.Fprintln(os.Stderr, err)
+	multiFmt := ifmt.MultiFormatter{}
 
+	for _, formatter := range strings.Split(opt.Format, ",") {
+		out := output
+		formatterParts := strings.SplitN(formatter, ":", 2)
+
+		if len(formatterParts) > 1 {
+			f, err := os.Create(formatterParts[1])
+			if err != nil {
+				err = fmt.Errorf(
+					`couldn't create file with name: "%s", error: %s`,
+					formatterParts[1], err.Error(),
+				)
+				fmt.Fprintln(os.Stderr, err)
+
+				return exitOptionError
+			}
+
+			defer f.Close()
+
+			out = f
+		}
+
+		if opt.NoColors {
+			out = colors.Uncolored(out)
+		} else {
+			out = colors.Colored(out)
+		}
+
+		if nil == formatters.FindFmt(formatterParts[0]) {
+			var names []string
+			for name := range formatters.AvailableFormatters() {
+				names = append(names, name)
+			}
+			fmt.Fprintln(os.Stderr, fmt.Errorf(
+				`unregistered formatter name: "%s", use one of: %s`,
+				opt.Format,
+				strings.Join(names, ", "),
+			))
 			return exitOptionError
 		}
 
-		defer f.Close()
-
-		output = f
-		opt.Format = formatterParts[0]
-	}
-
-	if opt.NoColors {
-		output = colors.Uncolored(output)
-	} else {
-		output = colors.Colored(output)
+		multiFmt.Add(formatterParts[0], out)
 	}
 
 	if opt.ShowStepDefinitions {
@@ -173,8 +215,16 @@ func runWithOptions(suiteName string, runner runner, opt Options) int {
 		return exitOptionError
 	}
 
-	if len(opt.Paths) == 0 {
-		inf, err := os.Stat("features")
+	if len(opt.Paths) == 0 && len(opt.FeatureContents) == 0 {
+		inf, err := func() (fs.FileInfo, error) {
+			file, err := opt.FS.Open("features")
+			if err != nil {
+				return nil, err
+			}
+			defer file.Close()
+
+			return file.Stat()
+		}()
 		if err == nil && inf.IsDir() {
 			opt.Paths = []string{"features"}
 		}
@@ -184,25 +234,25 @@ func runWithOptions(suiteName string, runner runner, opt Options) int {
 		opt.Concurrency = 1
 	}
 
-	formatter := formatters.FindFmt(opt.Format)
-	if nil == formatter {
-		var names []string
-		for name := range formatters.AvailableFormatters() {
-			names = append(names, name)
-		}
-		fmt.Fprintln(os.Stderr, fmt.Errorf(
-			`unregistered formatter name: "%s", use one of: %s`,
-			opt.Format,
-			strings.Join(names, ", "),
-		))
-		return exitOptionError
-	}
-	runner.fmt = formatter(suiteName, output)
+	runner.fmt = multiFmt.FormatterFunc(suiteName, output)
+	opt.FS = storage.FS{FS: opt.FS}
 
-	var err error
-	if runner.features, err = parser.ParseFeatures(opt.Tags, opt.Paths); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return exitOptionError
+	if len(opt.FeatureContents) > 0 {
+		features, err := parser.ParseFromBytes(opt.Tags, opt.FeatureContents)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return exitOptionError
+		}
+		runner.features = append(runner.features, features...)
+	}
+
+	if len(opt.Paths) > 0 {
+		features, err := parser.ParseFeatures(opt.FS, opt.Tags, opt.Paths)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return exitOptionError
+		}
+		runner.features = append(runner.features, features...)
 	}
 
 	runner.storage = storage.NewStorage()
@@ -222,6 +272,8 @@ func runWithOptions(suiteName string, runner runner, opt Options) int {
 
 	runner.stopOnFailure = opt.StopOnFailure
 	runner.strict = opt.Strict
+	runner.defaultContext = opt.DefaultContext
+	runner.testingT = opt.TestingT
 
 	// store chosen seed in environment, so it could be seen in formatter summary report
 	os.Setenv("GODOG_SEED", strconv.FormatInt(runner.randomSeed, 10))
@@ -268,26 +320,77 @@ type TestSuite struct {
 // all configuration options from flags.
 //
 // The exit codes may vary from:
-//  0 - success
-//  1 - failed
-//  2 - command line usage error
-//  128 - or higher, os signal related error exit codes
+//
+//	0 - success
+//	1 - failed
+//	2 - command line usage error
+//	128 - or higher, os signal related error exit codes
 //
 // If there are flag related errors they will be directed to os.Stderr
 func (ts TestSuite) Run() int {
 	if ts.Options == nil {
-		ts.Options = &Options{}
-		ts.Options.Output = colors.Colored(os.Stdout)
-
-		flagSet := flagSet(ts.Options)
-		if err := flagSet.Parse(os.Args[1:]); err != nil {
-			fmt.Fprintln(os.Stderr, err)
+		var err error
+		ts.Options, err = getDefaultOptions()
+		if err != nil {
 			return exitOptionError
 		}
+	}
+	if ts.Options.FS == nil {
+		ts.Options.FS = storage.FS{}
+	}
+	if ts.Options.ShowHelp {
+		flag.CommandLine.Usage()
 
-		ts.Options.Paths = flagSet.Args()
+		return 0
 	}
 
 	r := runner{testSuiteInitializer: ts.TestSuiteInitializer, scenarioInitializer: ts.ScenarioInitializer}
 	return runWithOptions(ts.Name, r, *ts.Options)
+}
+
+// RetrieveFeatures will parse and return the features based on test suite option
+// Any modification on the parsed features will not have any impact on the next Run of the Test Suite
+func (ts TestSuite) RetrieveFeatures() ([]*models.Feature, error) {
+	opt := ts.Options
+
+	if opt == nil {
+		var err error
+		opt, err = getDefaultOptions()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if len(opt.Paths) == 0 {
+		inf, err := func() (fs.FileInfo, error) {
+			file, err := opt.FS.Open("features")
+			if err != nil {
+				return nil, err
+			}
+			defer file.Close()
+
+			return file.Stat()
+		}()
+		if err == nil && inf.IsDir() {
+			opt.Paths = []string{"features"}
+		}
+	}
+
+	return parser.ParseFeatures(opt.FS, opt.Tags, opt.Paths)
+}
+
+func getDefaultOptions() (*Options, error) {
+	opt := &Options{}
+	opt.Output = colors.Colored(os.Stdout)
+
+	flagSet := flagSet(opt)
+	if err := flagSet.Parse(os.Args[1:]); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return nil, err
+	}
+
+	opt.Paths = flagSet.Args()
+	opt.FS = storage.FS{}
+
+	return opt, nil
 }

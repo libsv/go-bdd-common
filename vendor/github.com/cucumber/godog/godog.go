@@ -14,6 +14,7 @@ For example, imagine you're about to create the famous UNIX ls command.
 Before you begin, you describe how the feature should work, see the example below..
 
 Example:
+
 	Feature: ls
 	  In order to see the directory structure
 	  As a UNIX user
@@ -39,4 +40,4 @@ Godog was inspired by Behat and Cucumber the above description is taken from it'
 package godog
 
 // Version of package - based on Semantic Versioning 2.0.0 http://semver.org/
-const Version = "v0.11.0"
+var Version = "v0.0.0-dev"
