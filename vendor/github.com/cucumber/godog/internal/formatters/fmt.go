@@ -9,10 +9,11 @@ import (
 	"strconv"
 	"strings"
 
+	messages "github.com/cucumber/messages/go/v21"
+
 	"github.com/cucumber/godog/colors"
 	"github.com/cucumber/godog/internal/models"
 	"github.com/cucumber/godog/internal/utils"
-	"github.com/cucumber/messages-go/v10"
 )
 
 var (
@@ -35,6 +36,7 @@ var (
 	skipped   = models.Skipped
 	undefined = models.Undefined
 	pending   = models.Pending
+	ambiguous = models.Ambiguous
 )
 
 type sortFeaturesByName []*models.Feature
