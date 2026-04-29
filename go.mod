@@ -16,7 +16,7 @@ require (
 	github.com/oliveagle/jsonpath v0.0.0-20180606110733-2e52cf6e6852
 	github.com/pkg/errors v0.9.1
 	github.com/segmentio/kafka-go v0.4.44
-	github.com/spf13/pflag v1.0.5
+	github.com/spf13/pflag v1.0.10
 	github.com/toorop/go-bitcoind v0.0.0-20201025081558-87ada228a807
 	github.com/yazgazan/jaydiff v0.3.1
 	google.golang.org/grpc v1.57.0

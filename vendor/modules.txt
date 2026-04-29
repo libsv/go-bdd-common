@@ -258,7 +258,7 @@ github.com/segmentio/kafka-go/sasl
 # github.com/sirupsen/logrus v1.9.3
 ## explicit; go 1.13
 github.com/sirupsen/logrus
-# github.com/spf13/pflag v1.0.5
+# github.com/spf13/pflag v1.0.10
 ## explicit; go 1.12
 github.com/spf13/pflag
 # github.com/toorop/go-bitcoind v0.0.0-20201025081558-87ada228a807
