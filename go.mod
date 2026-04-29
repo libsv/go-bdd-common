@@ -1,6 +1,6 @@
 module github.com/libsv/go-bdd-common
 
-go 1.18
+go 1.25.5
 
 require (
 	github.com/cucumber/godog v0.11.0
@@ -13,7 +13,7 @@ require (
 	github.com/libsv/go-bk v0.1.6
 	github.com/libsv/go-bt/v2 v2.2.5
 	github.com/minio/minio-go/v7 v7.0.63
-	github.com/oliveagle/jsonpath v0.0.0-20180606110733-2e52cf6e6852
+	github.com/oliveagle/jsonpath v0.1.4
 	github.com/pkg/errors v0.9.1
 	github.com/segmentio/kafka-go v0.4.44
 	github.com/spf13/pflag v1.0.5

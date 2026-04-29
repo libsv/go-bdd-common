@@ -177,8 +177,8 @@ github.com/modern-go/concurrent
 github.com/modern-go/reflect2
 # github.com/morikuni/aec v1.0.0
 ## explicit
-# github.com/oliveagle/jsonpath v0.0.0-20180606110733-2e52cf6e6852
-## explicit
+# github.com/oliveagle/jsonpath v0.1.4
+## explicit; go 1.25.5
 github.com/oliveagle/jsonpath
 # github.com/onsi/ginkgo v1.12.1
 ## explicit; go 1.12
