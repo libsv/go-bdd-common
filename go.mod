@@ -1,6 +1,6 @@
 module github.com/libsv/go-bdd-common
 
-go 1.18
+go 1.21
 
 require (
 	github.com/cucumber/godog v0.11.0
@@ -9,7 +9,7 @@ require (
 	github.com/golang/protobuf v1.5.3
 	github.com/google/uuid v1.3.1
 	github.com/jhump/protoreflect v1.15.3
-	github.com/lib/pq v1.10.3
+	github.com/lib/pq v1.12.3
 	github.com/libsv/go-bk v0.1.6
 	github.com/libsv/go-bt/v2 v2.2.5
 	github.com/minio/minio-go/v7 v7.0.63
