@@ -32,10 +32,34 @@ import (
 func (c *Client) GetObject(ctx context.Context, bucketName, objectName string, opts GetObjectOptions) (*Object, error) {
 	// Input validation.
 	if err := s3utils.CheckValidBucketName(bucketName); err != nil {
-		return nil, err
+		return nil, ErrorResponse{
+			StatusCode: http.StatusBadRequest,
+			Code:       InvalidBucketName,
+			Message:    err.Error(),
+		}
 	}
 	if err := s3utils.CheckValidObjectName(objectName); err != nil {
-		return nil, err
+		return nil, ErrorResponse{
+			StatusCode: http.StatusBadRequest,
+			Code:       XMinioInvalidObjectName,
+			Message:    err.Error(),
+		}
+	}
+
+	if opts.RDMABuffer != nil && c.rdmaEnabled {
+		n, err := c.getObjectRDMA(ctx, bucketName, objectName, opts)
+		if err != nil {
+			return nil, err
+		}
+		return &Object{
+			mutex:    &sync.Mutex{},
+			isClosed: true,
+			objectInfo: ObjectInfo{
+				Key:  objectName,
+				Size: n,
+			},
+			objectInfoSet: true,
+		}, nil
 	}
 
 	gctx, cancel := context.WithCancel(ctx)
@@ -310,7 +334,7 @@ func (o *Object) doGetRequest(request getRequest) (getResponse, error) {
 	response := <-o.resCh
 
 	// Return any error to the top level.
-	if response.Error != nil {
+	if response.Error != nil && response.Error != io.EOF {
 		return response, response.Error
 	}
 
@@ -332,7 +356,7 @@ func (o *Object) doGetRequest(request getRequest) (getResponse, error) {
 	// Data are ready on the wire, no need to reinitiate connection in lower level
 	o.seekData = false
 
-	return response, nil
+	return response, response.Error
 }
 
 // setOffset - handles the setting of offsets for
@@ -450,7 +474,14 @@ func (o *Object) ReadAt(b []byte, offset int64) (n int, err error) {
 		return 0, o.prevErr
 	}
 
-	// Set the current offset to ReadAt offset, because the current offset will be shifted at the end of this method.
+	// Save and restore currOffset so ReadAt doesn't affect sequential Read operations.
+	// Per io.ReaderAt: "ReadAt should not affect nor be affected by the underlying seek offset."
+	savedOffset := o.currOffset
+	defer func() {
+		o.currOffset = savedOffset
+		o.seekData = true // Force next Read to re-establish stream at correct position
+	}()
+
 	o.currOffset = offset
 
 	// Can only compare offsets to size when size has been set.
@@ -550,6 +581,8 @@ func (o *Object) Seek(offset int64, whence int) (n int64, err error) {
 		}
 	}
 
+	newOffset := o.currOffset
+
 	// Switch through whence.
 	switch whence {
 	default:
@@ -558,12 +591,12 @@ func (o *Object) Seek(offset int64, whence int) (n int64, err error) {
 		if o.objectInfo.Size > -1 && offset > o.objectInfo.Size {
 			return 0, io.EOF
 		}
-		o.currOffset = offset
+		newOffset = offset
 	case 1:
 		if o.objectInfo.Size > -1 && o.currOffset+offset > o.objectInfo.Size {
 			return 0, io.EOF
 		}
-		o.currOffset += offset
+		newOffset += offset
 	case 2:
 		// If we don't know the object size return an error for io.SeekEnd
 		if o.objectInfo.Size < 0 {
@@ -579,7 +612,7 @@ func (o *Object) Seek(offset int64, whence int) (n int64, err error) {
 		if o.objectInfo.Size+offset < 0 {
 			return 0, errInvalidArgument(fmt.Sprintf("Seeking at negative offset not allowed for %d", whence))
 		}
-		o.currOffset = o.objectInfo.Size + offset
+		newOffset = o.objectInfo.Size + offset
 	}
 	// Reset the saved error since we successfully seeked, let the Read
 	// and ReadAt decide.
@@ -587,8 +620,9 @@ func (o *Object) Seek(offset int64, whence int) (n int64, err error) {
 		o.prevErr = nil
 	}
 
-	// Ask lower level to fetch again from source
-	o.seekData = true
+	// Ask lower level to fetch again from source when necessary
+	o.seekData = (newOffset != o.currOffset) || o.seekData
+	o.currOffset = newOffset
 
 	// Return the effective offset.
 	return o.currOffset, nil
@@ -646,10 +680,18 @@ func newObject(ctx context.Context, cancel context.CancelFunc, reqCh chan<- getR
 func (c *Client) getObject(ctx context.Context, bucketName, objectName string, opts GetObjectOptions) (io.ReadCloser, ObjectInfo, http.Header, error) {
 	// Validate input arguments.
 	if err := s3utils.CheckValidBucketName(bucketName); err != nil {
-		return nil, ObjectInfo{}, nil, err
+		return nil, ObjectInfo{}, nil, ErrorResponse{
+			StatusCode: http.StatusBadRequest,
+			Code:       InvalidBucketName,
+			Message:    err.Error(),
+		}
 	}
 	if err := s3utils.CheckValidObjectName(objectName); err != nil {
-		return nil, ObjectInfo{}, nil, err
+		return nil, ObjectInfo{}, nil, ErrorResponse{
+			StatusCode: http.StatusBadRequest,
+			Code:       XMinioInvalidObjectName,
+			Message:    err.Error(),
+		}
 	}
 
 	// Execute GET on objectName.
