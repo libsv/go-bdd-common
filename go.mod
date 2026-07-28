@@ -1,11 +1,11 @@
 module github.com/libsv/go-bdd-common
 
-go 1.18
+go 1.23
 
 require (
 	github.com/cucumber/godog v0.11.0
 	github.com/docker/docker v20.10.23+incompatible
-	github.com/docker/go-connections v0.4.0
+	github.com/docker/go-connections v0.8.1
 	github.com/golang/protobuf v1.5.3
 	github.com/google/uuid v1.3.1
 	github.com/jhump/protoreflect v1.15.3
@@ -24,7 +24,7 @@ require (
 )
 
 require (
-	github.com/Microsoft/go-winio v0.5.0 // indirect
+	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/bufbuild/protocompile v0.6.0 // indirect
 	github.com/cucumber/gherkin-go/v11 v11.0.0 // indirect
 	github.com/cucumber/messages-go/v10 v10.0.3 // indirect
