@@ -127,6 +127,12 @@ func Build(bin string) error {
 	// we also print back the temp WORK directory
 	// go has built. We will reuse it for our suite workdir.
 	temp := fmt.Sprintf(filepath.Join("%s", "temp-%d.test"), os.TempDir(), time.Now().UnixNano())
+	if os.Getenv("GO111MODULE") != "off" {
+		modTidyOutput, err := exec.Command("go", "mod", "tidy").CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("failed to tidy modules in tested package: %s, reason: %v, output: %s", abs, err, string(modTidyOutput))
+		}
+	}
 	testOutput, err := exec.Command("go", "test", "-c", "-work", "-o", temp).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to compile tested package: %s, reason: %v, output: %s", abs, err, string(testOutput))
@@ -143,6 +149,10 @@ func Build(bin string) error {
 		}
 		workdir = strings.Replace(ln, "WORK=", "", 1)
 		break
+	}
+
+	if strings.Contains(string(testOutput), "[no test files]") {
+		return fmt.Errorf("incorrect project structure: no test files found")
 	}
 
 	// may not locate it in output
@@ -176,6 +186,7 @@ func Build(bin string) error {
 	// we do not depend on CGO so a lot of checks are not necessary
 	linkerCfg := filepath.Join(testdir, "importcfg.link")
 	compilerCfg := linkerCfg
+
 	if vendored != nil {
 		data, err := ioutil.ReadFile(linkerCfg)
 		if err != nil {
@@ -197,6 +208,10 @@ func Build(bin string) error {
 		"-importcfg", compilerCfg,
 		"-p", "main",
 		"-complete",
+	}
+
+	if err := filterImportCfg(compilerCfg); err != nil {
+		return err
 	}
 
 	args = append(args, "-pack", testmain)
@@ -223,6 +238,27 @@ func Build(bin string) error {
 	reason: %s
 	command: %s`
 		return fmt.Errorf(msg, string(out), linker+" '"+strings.Join(args, "' '")+"'")
+	}
+
+	return nil
+}
+
+// filterImportCfg strips unsupported lines from imports configuration.
+func filterImportCfg(path string) error {
+	orig, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("failed to read %s: %w", path, err)
+	}
+
+	res := ""
+	for _, l := range strings.Split(string(orig), "\n") {
+		if !strings.HasPrefix(l, "modinfo") {
+			res += l + "\n"
+		}
+	}
+	err = ioutil.WriteFile(path, []byte(res), 0600)
+	if err != nil {
+		return fmt.Errorf("failed to write %s: %w", path, err)
 	}
 
 	return nil

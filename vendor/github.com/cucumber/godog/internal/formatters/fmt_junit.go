@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/cucumber/godog/formatters"
+	"github.com/cucumber/godog/internal/models"
 	"github.com/cucumber/godog/internal/utils"
 )
 
@@ -19,14 +20,16 @@ func init() {
 
 // JUnitFormatterFunc implements the FormatterFunc for the junit formatter
 func JUnitFormatterFunc(suite string, out io.Writer) formatters.Formatter {
-	return &junitFormatter{Basefmt: NewBaseFmt(suite, out)}
+	return &JUnit{Base: NewBase(suite, out)}
 }
 
-type junitFormatter struct {
-	*Basefmt
+// JUnit renders test results in JUnit format.
+type JUnit struct {
+	*Base
 }
 
-func (f *junitFormatter) Summary() {
+// Summary renders summary information.
+func (f *JUnit) Summary() {
 	suite := f.buildJUNITPackageSuite()
 
 	_, err := io.WriteString(f.out, xml.Header)
@@ -45,11 +48,45 @@ func junitTimeDuration(from, to time.Time) string {
 	return strconv.FormatFloat(to.Sub(from).Seconds(), 'f', -1, 64)
 }
 
-func (f *junitFormatter) buildJUNITPackageSuite() JunitPackageSuite {
-	features := f.storage.MustGetFeatures()
+// getPickleResult deals with the fact that if there's no result due to 'StopOnFirstFailure' being
+// set, MustGetPickleResult panics.
+func (f *JUnit) getPickleResult(pickleID string) (res *models.PickleResult) {
+	defer func() {
+		if r := recover(); r != nil {
+			res = nil
+		}
+	}()
+	pr := f.Storage.MustGetPickleResult(pickleID)
+	res = &pr
+	return
+}
+
+func (f *JUnit) getPickleStepResult(stepID string) (res *models.PickleStepResult) {
+	defer func() {
+		if r := recover(); r != nil {
+			res = nil
+		}
+	}()
+	psr := f.Storage.MustGetPickleStepResult(stepID)
+	res = &psr
+	return
+}
+
+func (f *JUnit) getPickleStepResultsByPickleID(pickleID string) (res []models.PickleStepResult) {
+	defer func() {
+		if r := recover(); r != nil {
+			res = nil
+		}
+	}()
+	res = f.Storage.MustGetPickleStepResultsByPickleID(pickleID)
+	return
+}
+
+func (f *JUnit) buildJUNITPackageSuite() JunitPackageSuite {
+	features := f.Storage.MustGetFeatures()
 	sort.Sort(sortFeaturesByName(features))
 
-	testRunStartedAt := f.storage.MustGetTestRunStarted().StartedAt
+	testRunStartedAt := f.Storage.MustGetTestRunStarted().StartedAt
 
 	suite := JunitPackageSuite{
 		Name:       f.suiteName,
@@ -58,7 +95,7 @@ func (f *junitFormatter) buildJUNITPackageSuite() JunitPackageSuite {
 	}
 
 	for idx, feature := range features {
-		pickles := f.storage.MustGetPickles(feature.Uri)
+		pickles := f.Storage.MustGetPickles(feature.Uri)
 		sort.Sort(sortPicklesByID(pickles))
 
 		ts := junitTestSuite{
@@ -77,35 +114,39 @@ func (f *junitFormatter) buildJUNITPackageSuite() JunitPackageSuite {
 		var outlineNo = make(map[string]int)
 		for idx, pickle := range pickles {
 			tc := junitTestCase{}
-
-			pickleResult := f.storage.MustGetPickleResult(pickle.Id)
-
-			if idx == 0 {
-				firstPickleStartedAt = pickleResult.StartedAt
-			}
-
-			lastPickleFinishedAt = pickleResult.StartedAt
-
-			if len(pickle.Steps) > 0 {
-				lastStep := pickle.Steps[len(pickle.Steps)-1]
-				lastPickleStepResult := f.storage.MustGetPickleStepResult(lastStep.Id)
-				lastPickleFinishedAt = lastPickleStepResult.FinishedAt
-			}
-
-			tc.Time = junitTimeDuration(pickleResult.StartedAt, lastPickleFinishedAt)
-
 			tc.Name = pickle.Name
 			if testcaseNames[tc.Name] > 1 {
 				outlineNo[tc.Name] = outlineNo[tc.Name] + 1
 				tc.Name += fmt.Sprintf(" #%d", outlineNo[tc.Name])
 			}
 
+			pickleResult := f.getPickleResult(pickle.Id)
+			if pickleResult == nil {
+				tc.Status = skipped.String()
+			} else {
+				if idx == 0 {
+					firstPickleStartedAt = pickleResult.StartedAt
+				}
+				lastPickleFinishedAt = pickleResult.StartedAt
+			}
+
+			if len(pickle.Steps) > 0 {
+				lastStep := pickle.Steps[len(pickle.Steps)-1]
+				if lastPickleStepResult := f.getPickleStepResult(lastStep.Id); lastPickleStepResult != nil {
+					lastPickleFinishedAt = lastPickleStepResult.FinishedAt
+				}
+			}
+
+			if pickleResult != nil {
+				tc.Time = junitTimeDuration(pickleResult.StartedAt, lastPickleFinishedAt)
+			}
+
 			ts.Tests++
 			suite.Tests++
 
-			pickleStepResults := f.storage.MustGetPickleStepResultsByPickleID(pickle.Id)
+			pickleStepResults := f.getPickleStepResultsByPickleID(pickle.Id)
 			for _, stepResult := range pickleStepResults {
-				pickleStep := f.storage.MustGetPickleStep(stepResult.PickleStepID)
+				pickleStep := f.Storage.MustGetPickleStep(stepResult.PickleStepID)
 
 				switch stepResult.Status {
 				case passed:
@@ -115,6 +156,12 @@ func (f *junitFormatter) buildJUNITPackageSuite() JunitPackageSuite {
 					tc.Failure = &junitFailure{
 						Message: fmt.Sprintf("Step %s: %s", pickleStep.Text, stepResult.Err),
 					}
+				case ambiguous:
+					tc.Status = ambiguous.String()
+					tc.Error = append(tc.Error, &junitError{
+						Type:    "ambiguous",
+						Message: fmt.Sprintf("Step %s", pickleStep.Text),
+					})
 				case skipped:
 					tc.Error = append(tc.Error, &junitError{
 						Type:    "skipped",
