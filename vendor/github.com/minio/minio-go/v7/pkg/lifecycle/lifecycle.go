@@ -192,7 +192,7 @@ func (t Transition) IsDaysNull() bool {
 
 // IsDateNull returns true if date field is null
 func (t Transition) IsDateNull() bool {
-	return t.Date.Time.IsZero()
+	return t.Date.IsZero()
 }
 
 // IsNull returns true if no storage-class is set.
@@ -209,37 +209,97 @@ func (t Transition) MarshalXML(en *xml.Encoder, startElement xml.StartElement) e
 	return en.EncodeElement(transitionWrapper(t), startElement)
 }
 
+// Compression is a MinIO AIStor extension with no S3 equivalent: it compresses
+// matching current object versions in place. Presence of the element enables the
+// action, so Rule carries it as a pointer — unlike Transition, there is no
+// StorageClass to key presence off and Days: 0 legitimately means "immediately".
+//
+// HighCompression selects the strongest level the server offers; without it the
+// rule writes the level ingest uses and only compresses objects stored
+// uncompressed.
+//
+// Unlike Transition and Expiration there is no absolute Date trigger — a one-off
+// sweep is what the compress batch job is for. That also means no custom
+// MarshalJSON: with no embedded time.Time to suppress, every field honors
+// omitempty, and a zero element still marshals as {} because Rule holds it as a
+// pointer and its presence alone enables the action.
+type Compression struct {
+	XMLName          xml.Name       `xml:"Compression" json:"-"`
+	Days             ExpirationDays `xml:"Days,omitempty" json:"Days,omitempty"`
+	HighCompression  bool           `xml:"HighCompression,omitempty" json:"HighCompression,omitempty"`
+	SkipCompressed   bool           `xml:"SkipCompressed,omitempty" json:"SkipCompressed,omitempty"`
+	IncludeEncrypted bool           `xml:"IncludeEncrypted,omitempty" json:"IncludeEncrypted,omitempty"`
+}
+
+// IsDaysNull returns true if days field is null
+func (c *Compression) IsDaysNull() bool {
+	return c == nil || c.Days == ExpirationDays(0)
+}
+
+// IsNull returns true if the element is absent.
+func (c *Compression) IsNull() bool {
+	return c == nil
+}
+
+// NoncurrentVersionCompression is the Compression counterpart for noncurrent
+// object versions. See Compression for why Rule holds it as a pointer.
+type NoncurrentVersionCompression struct {
+	XMLName          xml.Name       `xml:"NoncurrentVersionCompression" json:"-"`
+	NoncurrentDays   ExpirationDays `xml:"NoncurrentDays,omitempty" json:"NoncurrentDays,omitempty"`
+	HighCompression  bool           `xml:"HighCompression,omitempty" json:"HighCompression,omitempty"`
+	SkipCompressed   bool           `xml:"SkipCompressed,omitempty" json:"SkipCompressed,omitempty"`
+	IncludeEncrypted bool           `xml:"IncludeEncrypted,omitempty" json:"IncludeEncrypted,omitempty"`
+}
+
+// IsDaysNull returns true if noncurrent days field is null
+func (n *NoncurrentVersionCompression) IsDaysNull() bool {
+	return n == nil || n.NoncurrentDays == ExpirationDays(0)
+}
+
+// IsNull returns true if the element is absent.
+func (n *NoncurrentVersionCompression) IsNull() bool {
+	return n == nil
+}
+
 // And And Rule for LifecycleTag, to be used in LifecycleRuleFilter
 type And struct {
-	XMLName xml.Name `xml:"And" json:"-"`
-	Prefix  string   `xml:"Prefix" json:"Prefix,omitempty"`
-	Tags    []Tag    `xml:"Tag" json:"Tags,omitempty"`
+	XMLName               xml.Name `xml:"And" json:"-"`
+	Prefix                string   `xml:"Prefix" json:"Prefix,omitempty"`
+	Tags                  []Tag    `xml:"Tag" json:"Tags,omitempty"`
+	ObjectSizeLessThan    int64    `xml:"ObjectSizeLessThan,omitempty" json:"ObjectSizeLessThan,omitempty"`
+	ObjectSizeGreaterThan int64    `xml:"ObjectSizeGreaterThan,omitempty" json:"ObjectSizeGreaterThan,omitempty"`
 }
 
 // IsEmpty returns true if Tags field is null
 func (a And) IsEmpty() bool {
-	return len(a.Tags) == 0 && a.Prefix == ""
+	return len(a.Tags) == 0 && a.Prefix == "" &&
+		a.ObjectSizeLessThan == 0 && a.ObjectSizeGreaterThan == 0
 }
 
 // Filter will be used in selecting rule(s) for lifecycle configuration
 type Filter struct {
-	XMLName xml.Name `xml:"Filter" json:"-"`
-	And     And      `xml:"And,omitempty" json:"And,omitempty"`
-	Prefix  string   `xml:"Prefix,omitempty" json:"Prefix,omitempty"`
-	Tag     Tag      `xml:"Tag,omitempty" json:"Tag,omitempty"`
+	XMLName               xml.Name `xml:"Filter" json:"-"`
+	And                   And      `xml:"And,omitempty" json:"And,omitempty"`
+	Prefix                string   `xml:"Prefix,omitempty" json:"Prefix,omitempty"`
+	Tag                   Tag      `xml:"Tag,omitempty" json:"Tag,omitempty"`
+	ObjectSizeLessThan    int64    `xml:"ObjectSizeLessThan,omitempty" json:"ObjectSizeLessThan,omitempty"`
+	ObjectSizeGreaterThan int64    `xml:"ObjectSizeGreaterThan,omitempty" json:"ObjectSizeGreaterThan,omitempty"`
 }
 
 // IsNull returns true if all Filter fields are empty.
 func (f Filter) IsNull() bool {
-	return f.Tag.IsEmpty() && f.And.IsEmpty() && f.Prefix == ""
+	return f.Tag.IsEmpty() && f.And.IsEmpty() && f.Prefix == "" &&
+		f.ObjectSizeLessThan == 0 && f.ObjectSizeGreaterThan == 0
 }
 
 // MarshalJSON customizes json encoding by removing empty values.
 func (f Filter) MarshalJSON() ([]byte, error) {
 	type filter struct {
-		And    *And   `json:"And,omitempty"`
-		Prefix string `json:"Prefix,omitempty"`
-		Tag    *Tag   `json:"Tag,omitempty"`
+		And                   *And   `json:"And,omitempty"`
+		Prefix                string `json:"Prefix,omitempty"`
+		Tag                   *Tag   `json:"Tag,omitempty"`
+		ObjectSizeLessThan    int64  `json:"ObjectSizeLessThan,omitempty"`
+		ObjectSizeGreaterThan int64  `json:"ObjectSizeGreaterThan,omitempty"`
 	}
 
 	newf := filter{
@@ -251,11 +311,16 @@ func (f Filter) MarshalJSON() ([]byte, error) {
 	if !f.And.IsEmpty() {
 		newf.And = &f.And
 	}
+	newf.ObjectSizeLessThan = f.ObjectSizeLessThan
+	newf.ObjectSizeGreaterThan = f.ObjectSizeGreaterThan
 	return json.Marshal(newf)
 }
 
 // MarshalXML - produces the xml representation of the Filter struct
-// only one of Prefix, And and Tag should be present in the output.
+// at most one of Prefix, And, Tag, ObjectSizeGreaterThan and
+// ObjectSizeLessThan is present in the output.
+// A zero-value Filter marshals as <Filter><Prefix></Prefix></Filter>;
+// suppressing the element entirely is the caller's responsibility.
 func (f Filter) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	if err := e.EncodeToken(start); err != nil {
 		return err
@@ -271,7 +336,19 @@ func (f Filter) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 			return err
 		}
 	default:
-		// Always print Prefix field when both And & Tag are empty
+		if f.ObjectSizeLessThan > 0 {
+			if err := e.EncodeElement(f.ObjectSizeLessThan, xml.StartElement{Name: xml.Name{Local: "ObjectSizeLessThan"}}); err != nil {
+				return err
+			}
+			break
+		}
+		if f.ObjectSizeGreaterThan > 0 {
+			if err := e.EncodeElement(f.ObjectSizeGreaterThan, xml.StartElement{Name: xml.Name{Local: "ObjectSizeGreaterThan"}}); err != nil {
+				return err
+			}
+			break
+		}
+		// Print empty Prefix field only when everything else is empty
 		if err := e.EncodeElement(f.Prefix, xml.StartElement{Name: xml.Name{Local: "Prefix"}}); err != nil {
 			return err
 		}
@@ -301,7 +378,7 @@ type ExpirationDate struct {
 // MarshalXML encodes expiration date if it is non-zero and encodes
 // empty string otherwise
 func (eDate ExpirationDate) MarshalXML(e *xml.Encoder, startElement xml.StartElement) error {
-	if eDate.Time.IsZero() {
+	if eDate.IsZero() {
 		return nil
 	}
 	return e.EncodeElement(eDate.Format(time.RFC3339), startElement)
@@ -370,7 +447,7 @@ func (e Expiration) IsDaysNull() bool {
 
 // IsDateNull returns true if date field is null
 func (e Expiration) IsDateNull() bool {
-	return e.Date.Time.IsZero()
+	return e.Date.IsZero()
 }
 
 // IsDeleteMarkerExpirationEnabled returns true if the auto-expiration of delete marker is enabled
@@ -380,7 +457,7 @@ func (e Expiration) IsDeleteMarkerExpirationEnabled() bool {
 
 // IsNull returns true if both date and days fields are null
 func (e Expiration) IsNull() bool {
-	return e.IsDaysNull() && e.IsDateNull() && !e.IsDeleteMarkerExpirationEnabled()
+	return e.IsDaysNull() && e.IsDateNull() && !e.IsDeleteMarkerExpirationEnabled() && !e.DeleteAll.IsEnabled()
 }
 
 // MarshalXML is expiration is non null
@@ -392,11 +469,54 @@ func (e Expiration) MarshalXML(en *xml.Encoder, startElement xml.StartElement) e
 	return en.EncodeElement(expirationWrapper(e), startElement)
 }
 
+// DelMarkerExpiration represents DelMarkerExpiration actions element in an ILM policy
+type DelMarkerExpiration struct {
+	XMLName xml.Name `xml:"DelMarkerExpiration" json:"-"`
+	Days    int      `xml:"Days,omitempty" json:"Days,omitempty"`
+}
+
+// IsNull returns true if Days isn't specified and false otherwise.
+func (de DelMarkerExpiration) IsNull() bool {
+	return de.Days == 0
+}
+
+// MarshalXML avoids serializing an empty DelMarkerExpiration element
+func (de DelMarkerExpiration) MarshalXML(enc *xml.Encoder, start xml.StartElement) error {
+	if de.IsNull() {
+		return nil
+	}
+	type delMarkerExp DelMarkerExpiration
+	return enc.EncodeElement(delMarkerExp(de), start)
+}
+
+// AllVersionsExpiration represents AllVersionsExpiration actions element in an ILM policy
+type AllVersionsExpiration struct {
+	XMLName      xml.Name           `xml:"AllVersionsExpiration" json:"-"`
+	Days         int                `xml:"Days,omitempty" json:"Days,omitempty"`
+	DeleteMarker ExpireDeleteMarker `xml:"DeleteMarker,omitempty" json:"DeleteMarker,omitempty"`
+}
+
+// IsNull returns true if days field is 0
+func (e AllVersionsExpiration) IsNull() bool {
+	return e.Days == 0
+}
+
+// MarshalXML satisfies xml.Marshaler to provide custom encoding
+func (e AllVersionsExpiration) MarshalXML(enc *xml.Encoder, start xml.StartElement) error {
+	if e.IsNull() {
+		return nil
+	}
+	type allVersionsExp AllVersionsExpiration
+	return enc.EncodeElement(allVersionsExp(e), start)
+}
+
 // MarshalJSON customizes json encoding by omitting empty values
 func (r Rule) MarshalJSON() ([]byte, error) {
 	type rule struct {
 		AbortIncompleteMultipartUpload *AbortIncompleteMultipartUpload `json:"AbortIncompleteMultipartUpload,omitempty"`
 		Expiration                     *Expiration                     `json:"Expiration,omitempty"`
+		DelMarkerExpiration            *DelMarkerExpiration            `json:"DelMarkerExpiration,omitempty"`
+		AllVersionsExpiration          *AllVersionsExpiration          `json:"AllVersionsExpiration,omitempty"`
 		ID                             string                          `json:"ID"`
 		RuleFilter                     *Filter                         `json:"Filter,omitempty"`
 		NoncurrentVersionExpiration    *NoncurrentVersionExpiration    `json:"NoncurrentVersionExpiration,omitempty"`
@@ -404,6 +524,8 @@ func (r Rule) MarshalJSON() ([]byte, error) {
 		Prefix                         string                          `json:"Prefix,omitempty"`
 		Status                         string                          `json:"Status"`
 		Transition                     *Transition                     `json:"Transition,omitempty"`
+		Compression                    *Compression                    `json:"Compression,omitempty"`
+		NoncurrentVersionCompression   *NoncurrentVersionCompression   `json:"NoncurrentVersionCompression,omitempty"`
 	}
 	newr := rule{
 		Prefix: r.Prefix,
@@ -420,6 +542,9 @@ func (r Rule) MarshalJSON() ([]byte, error) {
 	if !r.Expiration.IsNull() {
 		newr.Expiration = &r.Expiration
 	}
+	if !r.DelMarkerExpiration.IsNull() {
+		newr.DelMarkerExpiration = &r.DelMarkerExpiration
+	}
 	if !r.Transition.IsNull() {
 		newr.Transition = &r.Transition
 	}
@@ -429,8 +554,46 @@ func (r Rule) MarshalJSON() ([]byte, error) {
 	if !r.NoncurrentVersionTransition.isNull() {
 		newr.NoncurrentVersionTransition = &r.NoncurrentVersionTransition
 	}
+	if !r.AllVersionsExpiration.IsNull() {
+		newr.AllVersionsExpiration = &r.AllVersionsExpiration
+	}
+	newr.Compression = r.Compression
+	newr.NoncurrentVersionCompression = r.NoncurrentVersionCompression
 
 	return json.Marshal(newr)
+}
+
+// ruleAlias drops Rule's methods so EncodeElement falls back to the default
+// struct-tag encoding.
+type ruleAlias Rule
+
+// ruleWrapper embeds ruleAlias, so it needs no updating when Rule gains a
+// field. Its RuleFilter is shallower than the embedded one, and encoding/xml's
+// depth-based field shadowing suppresses the deeper field, so <Filter> is
+// emitted only through this pointer: nil omits the element, a set pointer
+// emits it (empty) as the last child of <Rule>.
+type ruleWrapper struct {
+	ruleAlias
+	RuleFilter *Filter `xml:"Filter,omitempty"`
+}
+
+// MarshalXML customizes XML encoding of Rule: a rule with neither Filter nor
+// Prefix set emits an empty <Filter><Prefix></Prefix></Filter> as the last
+// child of <Rule> — S3 requires a Filter when no Prefix element is present;
+// the empty <Prefix> child is this library's representation of an empty
+// filter. A rule with only a top-level Prefix omits the Filter element; a
+// non-null Filter marshals through the default encoding in its declared
+// field position. MarshalJSON is unaffected and still omits a null Filter.
+func (r Rule) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	if !r.RuleFilter.IsNull() {
+		return e.EncodeElement(ruleAlias(r), start)
+	}
+
+	w := ruleWrapper{ruleAlias: ruleAlias(r)}
+	if r.Prefix == "" {
+		w.RuleFilter = &w.ruleAlias.RuleFilter
+	}
+	return e.EncodeElement(w, start)
 }
 
 // Rule represents a single rule in lifecycle configuration
@@ -438,6 +601,8 @@ type Rule struct {
 	XMLName                        xml.Name                       `xml:"Rule,omitempty" json:"-"`
 	AbortIncompleteMultipartUpload AbortIncompleteMultipartUpload `xml:"AbortIncompleteMultipartUpload,omitempty" json:"AbortIncompleteMultipartUpload,omitempty"`
 	Expiration                     Expiration                     `xml:"Expiration,omitempty" json:"Expiration,omitempty"`
+	DelMarkerExpiration            DelMarkerExpiration            `xml:"DelMarkerExpiration,omitempty" json:"DelMarkerExpiration,omitempty"`
+	AllVersionsExpiration          AllVersionsExpiration          `xml:"AllVersionsExpiration,omitempty" json:"AllVersionsExpiration,omitempty"`
 	ID                             string                         `xml:"ID" json:"ID"`
 	RuleFilter                     Filter                         `xml:"Filter,omitempty" json:"Filter,omitempty"`
 	NoncurrentVersionExpiration    NoncurrentVersionExpiration    `xml:"NoncurrentVersionExpiration,omitempty"  json:"NoncurrentVersionExpiration,omitempty"`
@@ -445,6 +610,8 @@ type Rule struct {
 	Prefix                         string                         `xml:"Prefix,omitempty" json:"Prefix,omitempty"`
 	Status                         string                         `xml:"Status" json:"Status"`
 	Transition                     Transition                     `xml:"Transition,omitempty" json:"Transition,omitempty"`
+	Compression                    *Compression                   `xml:"Compression,omitempty" json:"Compression,omitempty"`
+	NoncurrentVersionCompression   *NoncurrentVersionCompression  `xml:"NoncurrentVersionCompression,omitempty" json:"NoncurrentVersionCompression,omitempty"`
 }
 
 // Configuration is a collection of Rule objects.
