@@ -7,7 +7,11 @@ import (
 	"io"
 	"reflect"
 	"runtime"
+	"slices"
+	"sort"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/golang/protobuf/proto"
@@ -16,19 +20,41 @@ import (
 	refv1 "google.golang.org/grpc/reflection/grpc_reflection_v1"
 	refv1alpha "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/reflect/protodesc"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/descriptorpb"
 
 	"github.com/jhump/protoreflect/desc"
 	"github.com/jhump/protoreflect/internal"
 )
 
-// If we try the v1 reflection API and get back "not implemented", we'll wait
-// this long before trying v1 again. This allows a long-lived client to
-// dynamically switch from v1alpha to v1 if the underlying server is updated
-// to support it. But it also prevents every stream request from always trying
-// v1 first: if we try it and see it fail, we shouldn't continually retry it
-// if we expect it will fail again.
-const durationBetweenV1Attempts = time.Hour
+const (
+	// If we try the v1 reflection API and get back "not implemented", we'll wait
+	// this long before trying v1 again. This allows a long-lived client to
+	// dynamically switch from v1alpha to v1 if the underlying server is updated
+	// to support it. But it also prevents every stream request from always trying
+	// v1 first: if we try it and see it fail, we shouldn't continually retry it
+	// if we expect it will fail again.
+	durationBetweenV1Attempts = time.Hour
+
+	// Interestingly, no Protobuf compiler (protoc, protoparse in this repo,
+	// protocompile, etc) seems to have a limit on the depth of an import tree.
+	// The protobuf-go runtime's protodesc.NewFiles has no such limit either,
+	// but it also requires that the full dependency graph already be materialized
+	// in-memory as descriptorpb.FileDescriptorProtos -- so if there were a
+	// resource issue, it would have already been hit when loading all the raw
+	// descriptors into memory. This package does not have that requirement and
+	// will download descriptors on-demand as it crawls the import graph. That
+	// means that it realistically needs a limit to prevent a malicious server
+	// from synthesizing a result graph that is wildly deep, causing a fatal
+	// stack overflow error in the client. We use an incredibly generous limit
+	// to avoid returning errors for real code bases that happen to have very
+	// deep import trees. Real code bases will rarely exceed a depth in the 10s,
+	// so if we hit this, it must be a malicious server. (And this value should
+	// still be low enough to avoid a stack overflow.)
+	maxImportDepth = 1024
+)
 
 // elementNotFoundError is the error returned by reflective operations where the
 // server does not recognize a given file name, symbol name, or extension.
@@ -62,14 +88,31 @@ const (
 )
 
 func symbolNotFound(symbol string, symType symbolType, cause *elementNotFoundError) error {
+	if cause != nil && cause.kind == elementKindSymbol && cause.name == symbol {
+		// no need to wrap
+		if symType != symbolTypeUnknown && cause.symType == symbolTypeUnknown {
+			// We previously didn't know symbol type but now do?
+			// Create a new error that has the right symbol type.
+			return &elementNotFoundError{name: symbol, symType: symType, kind: elementKindSymbol}
+		}
+		return cause
+	}
 	return &elementNotFoundError{name: symbol, symType: symType, kind: elementKindSymbol, cause: cause}
 }
 
 func extensionNotFound(extendee string, tag int32, cause *elementNotFoundError) error {
+	if cause != nil && cause.kind == elementKindExtension && cause.name == extendee && cause.tag == tag {
+		// no need to wrap
+		return cause
+	}
 	return &elementNotFoundError{name: extendee, tag: tag, kind: elementKindExtension, cause: cause}
 }
 
 func fileNotFound(file string, cause *elementNotFoundError) error {
+	if cause != nil && cause.kind == elementKindFile && cause.name == file {
+		// no need to wrap
+		return cause
+	}
 	return &elementNotFoundError{name: file, kind: elementKindFile, cause: cause}
 }
 
@@ -80,15 +123,15 @@ func (e *elementNotFoundError) Error() string {
 		if first {
 			first = false
 		} else {
-			fmt.Fprint(&b, "\ncaused by: ")
+			_, _ = fmt.Fprint(&b, "\ncaused by: ")
 		}
 		switch e.kind {
 		case elementKindSymbol:
-			fmt.Fprintf(&b, "%s not found: %s", e.symType, e.name)
+			_, _ = fmt.Fprintf(&b, "%s not found: %s", e.symType, e.name)
 		case elementKindExtension:
-			fmt.Fprintf(&b, "Extension not found: tag %d for %s", e.tag, e.name)
+			_, _ = fmt.Fprintf(&b, "Extension not found: tag %d for %s", e.tag, e.name)
 		default:
-			fmt.Fprintf(&b, "File not found: %s", e.name)
+			_, _ = fmt.Fprintf(&b, "File not found: %s", e.name)
 		}
 	}
 	return b.String()
@@ -116,25 +159,33 @@ type extDesc struct {
 	extensionNumber     int32
 }
 
+type resolvers struct {
+	descriptorResolver protodesc.Resolver
+	extensionResolver  protoregistry.ExtensionTypeResolver
+}
+
+type fileEntry struct {
+	fd       *desc.FileDescriptor
+	fallback bool
+}
+
 // Client is a client connection to a server for performing reflection calls
 // and resolving remote symbols.
 type Client struct {
-	ctx         context.Context
-	now         func() time.Time
-	stubV1      refv1.ServerReflectionClient
-	stubV1Alpha refv1alpha.ServerReflectionClient
+	ctx              context.Context
+	now              func() time.Time
+	stubV1           refv1.ServerReflectionClient
+	stubV1Alpha      refv1alpha.ServerReflectionClient
+	allowMissing     atomic.Bool
+	fallbackResolver atomic.Pointer[resolvers]
 
-	connMu      sync.Mutex
-	cancel      context.CancelFunc
-	stream      refv1alpha.ServerReflection_ServerReflectionInfoClient
-	useV1Alpha  bool
-	lastTriedV1 time.Time
+	*liveStream
 
 	cacheMu          sync.RWMutex
 	protosByName     map[string]*descriptorpb.FileDescriptorProto
-	filesByName      map[string]*desc.FileDescriptor
-	filesBySymbol    map[string]*desc.FileDescriptor
-	filesByExtension map[extDesc]*desc.FileDescriptor
+	filesByName      map[string]fileEntry
+	filesBySymbol    map[string]fileEntry
+	filesByExtension map[extDesc]fileEntry
 }
 
 // NewClient creates a new Client with the given root context and using the
@@ -154,20 +205,10 @@ func NewClientV1Alpha(ctx context.Context, stub refv1alpha.ServerReflectionClien
 	return newClient(ctx, nil, stub)
 }
 
-func newClient(ctx context.Context, stubv1 refv1.ServerReflectionClient, stubv1alpha refv1alpha.ServerReflectionClient) *Client {
-	cr := &Client{
-		ctx:              ctx,
-		now:              time.Now,
-		stubV1:           stubv1,
-		stubV1Alpha:      stubv1alpha,
-		protosByName:     map[string]*descriptorpb.FileDescriptorProto{},
-		filesByName:      map[string]*desc.FileDescriptor{},
-		filesBySymbol:    map[string]*desc.FileDescriptor{},
-		filesByExtension: map[extDesc]*desc.FileDescriptor{},
-	}
-	// don't leak a grpc stream
-	runtime.SetFinalizer(cr, (*Client).Reset)
-	return cr
+// NewClientV1 creates a new Client using the v1 version of reflection with the
+// given root context and using the given RPC stub for talking to the server.
+func NewClientV1(ctx context.Context, stub refv1.ServerReflectionClient) *Client {
+	return newClient(ctx, stub, nil)
 }
 
 // NewClientAuto creates a new Client that will use either v1 or v1alpha version
@@ -186,54 +227,117 @@ func NewClientAuto(ctx context.Context, cc grpc.ClientConnInterface) *Client {
 	return newClient(ctx, stubv1, stubv1alpha)
 }
 
-// TODO: We should also have a NewClientV1. However that should not refer to internal
-// generated code. So it will have to wait until the grpc-go team fixes this issue:
-//  https://github.com/grpc/grpc-go/issues/5684
+func newClient(ctx context.Context, stubv1 refv1.ServerReflectionClient, stubv1alpha refv1alpha.ServerReflectionClient) *Client {
+	cr := &Client{
+		ctx:              ctx,
+		now:              time.Now,
+		stubV1:           stubv1,
+		stubV1Alpha:      stubv1alpha,
+		liveStream:       &liveStream{},
+		protosByName:     map[string]*descriptorpb.FileDescriptorProto{},
+		filesByName:      map[string]fileEntry{},
+		filesBySymbol:    map[string]fileEntry{},
+		filesByExtension: map[extDesc]fileEntry{},
+	}
+	// don't leak a grpc stream
+	runtime.AddCleanup(cr, (*liveStream).reset, cr.liveStream)
+	return cr
+}
+
+// AllowMissingFileDescriptors configures the client to allow missing files
+// when building descriptors when possible. Missing files are often fatal
+// errors, but with this option they can sometimes be worked around. Building
+// a schema can only succeed with some files missing if the files in question
+// only provide custom options and/or other unused types.
+func (cr *Client) AllowMissingFileDescriptors() {
+	cr.allowMissing.Store(true)
+}
+
+// AllowFallbackResolver configures the client to allow falling back to the
+// given resolvers if the server is unable to supply descriptors for a particular
+// query. This allows working around issues where servers' reflection service
+// provides an incomplete set of descriptors, but the client has knowledge of
+// the missing descriptors from another source. It is usually most appropriate
+// to pass [protoregistry.GlobalFiles] and [protoregistry.GlobalTypes] as the
+// resolver values.
+//
+// The first value is used as a fallback for FileByFilename and FileContainingSymbol
+// queries. The second value is used as a fallback for FileContainingExtension. It
+// can also be used as a fallback for AllExtensionNumbersForType if it provides
+// a method with the following signature (which *[protoregistry.Types] provides):
+//
+//	RangeExtensionsByMessage(message protoreflect.FullName, f func(protoreflect.ExtensionType) bool)
+func (cr *Client) AllowFallbackResolver(descriptors protodesc.Resolver, exts protoregistry.ExtensionTypeResolver) {
+	if descriptors == nil && exts == nil {
+		cr.fallbackResolver.Store(nil)
+	} else {
+		cr.fallbackResolver.Store(&resolvers{
+			descriptorResolver: descriptors,
+			extensionResolver:  exts,
+		})
+	}
+}
 
 // FileByFilename asks the server for a file descriptor for the proto file with
 // the given name.
 func (cr *Client) FileByFilename(filename string) (*desc.FileDescriptor, error) {
+	return cr.fileByFilename(filename, nil)
+}
+
+func (cr *Client) fileByFilename(filename string, depPath []string) (*desc.FileDescriptor, error) {
+	if idx := slices.Index(depPath, filename); idx != -1 {
+		return nil, fmt.Errorf("file %s has cyclic import path: %s -> %s", filename, strings.Join(depPath[idx:], " -> "), filename)
+	}
+	if len(depPath) >= maxImportDepth {
+		// Loading filename would put us at a depth of len(depPath)+1, one past
+		// the limit, so we refuse instead of recursing any further.
+		return nil, fmt.Errorf("file %s has import tree depth > %d", depPath[0], maxImportDepth)
+	}
+
 	// hit the cache first
 	cr.cacheMu.RLock()
-	if fd, ok := cr.filesByName[filename]; ok {
+	if entry, ok := cr.filesByName[filename]; ok {
 		cr.cacheMu.RUnlock()
-		return fd, nil
+		return entry.fd, nil
 	}
+	// not there? see if we've downloaded the proto
 	fdp, ok := cr.protosByName[filename]
 	cr.cacheMu.RUnlock()
-	// not there? see if we've downloaded the proto
 	if ok {
-		return cr.descriptorFromProto(fdp)
+		return cr.descriptorFromProto(fdp, depPath)
 	}
 
-	req := &refv1alpha.ServerReflectionRequest{
-		MessageRequest: &refv1alpha.ServerReflectionRequest_FileByFilename{
-			FileByFilename: filename,
-		},
-	}
-	accept := func(fd *desc.FileDescriptor) bool {
-		return fd.GetName() == filename
-	}
-
-	fd, err := cr.getAndCacheFileDescriptors(req, filename, "", accept)
+	fd, err := cr.getAndCacheFileDescriptors(filename, filename, depPath)
 	if isNotFound(err) {
-		// file not found? see if we can look up via alternate name
+		// File not found? see if we can look up via alternate name
 		if alternate, ok := internal.StdFileAliases[filename]; ok {
-			req := &refv1alpha.ServerReflectionRequest{
-				MessageRequest: &refv1alpha.ServerReflectionRequest_FileByFilename{
-					FileByFilename: alternate,
-				},
-			}
-			fd, err = cr.getAndCacheFileDescriptors(req, alternate, filename, accept)
-			if isNotFound(err) {
-				err = fileNotFound(filename, nil)
-			}
-		} else {
-			err = fileNotFound(filename, nil)
+			// We ask the server for the alternate name, but we still want back a
+			// descriptor named the way the caller asked for it: that is the name
+			// that files importing it will use to refer to it.
+			fd, err = cr.getAndCacheFileDescriptors(alternate, filename, depPath)
 		}
+	}
+	if isNotFound(err) {
+		// Still no? See if we can use a fallback resolver
+		resolver := cr.fallbackResolver.Load()
+		if resolver != nil && resolver.descriptorResolver != nil {
+			fileDesc, fallbackErr := resolver.descriptorResolver.FindFileByPath(filename)
+			if fallbackErr == nil {
+				var wrapErr error
+				fd, wrapErr = desc.WrapFile(fileDesc)
+				if wrapErr == nil {
+					fd = cr.cacheFile(fd, true)
+					err = nil // clear error since we've succeeded via the fallback
+				}
+			}
+		}
+	}
+	if isNotFound(err) {
+		err = fileNotFound(filename, nil)
 	} else if e, ok := err.(*elementNotFoundError); ok {
 		err = fileNotFound(filename, e)
 	}
+
 	return fd, err
 }
 
@@ -242,21 +346,36 @@ func (cr *Client) FileByFilename(filename string) (*desc.FileDescriptor, error) 
 func (cr *Client) FileContainingSymbol(symbol string) (*desc.FileDescriptor, error) {
 	// hit the cache first
 	cr.cacheMu.RLock()
-	fd, ok := cr.filesBySymbol[symbol]
+	entry, ok := cr.filesBySymbol[symbol]
 	cr.cacheMu.RUnlock()
 	if ok {
-		return fd, nil
+		return entry.fd, nil
 	}
 
-	req := &refv1alpha.ServerReflectionRequest{
-		MessageRequest: &refv1alpha.ServerReflectionRequest_FileContainingSymbol{
+	req := &refv1.ServerReflectionRequest{
+		MessageRequest: &refv1.ServerReflectionRequest_FileContainingSymbol{
 			FileContainingSymbol: symbol,
 		},
 	}
 	accept := func(fd *desc.FileDescriptor) bool {
 		return fd.FindSymbol(symbol) != nil
 	}
-	fd, err := cr.getAndCacheFileDescriptors(req, "", "", accept)
+	fd, err := cr.getAndCacheFileDescriptorsSearch(req, accept)
+	if isNotFound(err) {
+		// Symbol not found? See if we can use a fallback resolver
+		resolver := cr.fallbackResolver.Load()
+		if resolver != nil && resolver.descriptorResolver != nil {
+			d, fallbackErr := resolver.descriptorResolver.FindDescriptorByName(protoreflect.FullName(symbol))
+			if fallbackErr == nil {
+				var wrapErr error
+				fd, wrapErr = desc.WrapFile(d.ParentFile())
+				if wrapErr == nil {
+					fd = cr.cacheFile(fd, true)
+					err = nil // clear error since we've succeeded via the fallback
+				}
+			}
+		}
+	}
 	if isNotFound(err) {
 		err = symbolNotFound(symbol, symbolTypeUnknown, nil)
 	} else if e, ok := err.(*elementNotFoundError); ok {
@@ -271,15 +390,15 @@ func (cr *Client) FileContainingSymbol(symbol string) (*desc.FileDescriptor, err
 func (cr *Client) FileContainingExtension(extendedMessageName string, extensionNumber int32) (*desc.FileDescriptor, error) {
 	// hit the cache first
 	cr.cacheMu.RLock()
-	fd, ok := cr.filesByExtension[extDesc{extendedMessageName, extensionNumber}]
+	entry, ok := cr.filesByExtension[extDesc{extendedMessageName, extensionNumber}]
 	cr.cacheMu.RUnlock()
 	if ok {
-		return fd, nil
+		return entry.fd, nil
 	}
 
-	req := &refv1alpha.ServerReflectionRequest{
-		MessageRequest: &refv1alpha.ServerReflectionRequest_FileContainingExtension{
-			FileContainingExtension: &refv1alpha.ExtensionRequest{
+	req := &refv1.ServerReflectionRequest{
+		MessageRequest: &refv1.ServerReflectionRequest_FileContainingExtension{
+			FileContainingExtension: &refv1.ExtensionRequest{
 				ContainingType:  extendedMessageName,
 				ExtensionNumber: extensionNumber,
 			},
@@ -288,7 +407,22 @@ func (cr *Client) FileContainingExtension(extendedMessageName string, extensionN
 	accept := func(fd *desc.FileDescriptor) bool {
 		return fd.FindExtension(extendedMessageName, extensionNumber) != nil
 	}
-	fd, err := cr.getAndCacheFileDescriptors(req, "", "", accept)
+	fd, err := cr.getAndCacheFileDescriptorsSearch(req, accept)
+	if isNotFound(err) {
+		// Extension not found? See if we can use a fallback resolver
+		resolver := cr.fallbackResolver.Load()
+		if resolver != nil && resolver.extensionResolver != nil {
+			extType, fallbackErr := resolver.extensionResolver.FindExtensionByNumber(protoreflect.FullName(extendedMessageName), protoreflect.FieldNumber(extensionNumber))
+			if fallbackErr == nil {
+				var wrapErr error
+				fd, wrapErr = desc.WrapFile(extType.TypeDescriptor().ParentFile())
+				if wrapErr == nil {
+					fd = cr.cacheFile(fd, true)
+					err = nil // clear error since we've succeeded via the fallback
+				}
+			}
+		}
+	}
 	if isNotFound(err) {
 		err = extensionNotFound(extendedMessageName, extensionNumber, nil)
 	} else if e, ok := err.(*elementNotFoundError); ok {
@@ -297,7 +431,7 @@ func (cr *Client) FileContainingExtension(extendedMessageName string, extensionN
 	return fd, err
 }
 
-func (cr *Client) getAndCacheFileDescriptors(req *refv1alpha.ServerReflectionRequest, expectedName, alias string, accept func(*desc.FileDescriptor) bool) (*desc.FileDescriptor, error) {
+func (cr *Client) getAndCacheFileDescriptorProtos(req *refv1.ServerReflectionRequest) ([]*descriptorpb.FileDescriptorProto, error) {
 	resp, err := cr.send(req)
 	if err != nil {
 		return nil, err
@@ -311,151 +445,274 @@ func (cr *Client) getAndCacheFileDescriptors(req *refv1alpha.ServerReflectionReq
 	// Response can contain the result file descriptor, but also its transitive
 	// deps. Furthermore, protocol states that subsequent requests do not need
 	// to send transitive deps that have been sent in prior responses. So we
-	// need to cache all file descriptors and then return the first one (which
-	// should be the answer). If we're looking for a file by name, we can be
-	// smarter and make sure to grab one by name instead of just grabbing the
-	// first one.
-	var fds []*descriptorpb.FileDescriptorProto
-	for _, fdBytes := range fdResp.FileDescriptorProto {
+	// need to cache all file descriptors that were sent so we can find it if
+	// we need it later when building the file's full import graph.
+	fds := make([]*descriptorpb.FileDescriptorProto, len(fdResp.FileDescriptorProto))
+	for i, fdBytes := range fdResp.FileDescriptorProto {
 		fd := &descriptorpb.FileDescriptorProto{}
 		if err = proto.Unmarshal(fdBytes, fd); err != nil {
 			return nil, err
 		}
-
-		if expectedName != "" && alias != "" && expectedName != alias && fd.GetName() == expectedName {
-			// we found a file was aliased, so we need to update the proto to reflect that
-			fd.Name = proto.String(alias)
-		}
+		fds[i] = fd
 
 		cr.cacheMu.Lock()
-		// store in cache of raw descriptor protos, but don't overwrite existing protos
+
+		// Store in cache of raw descriptor protos, but don't overwrite existing protos
 		if existingFd, ok := cr.protosByName[fd.GetName()]; ok {
 			fd = existingFd
 		} else {
 			cr.protosByName[fd.GetName()] = fd
 		}
-		cr.cacheMu.Unlock()
+		// See if it has a known import alias.
+		if alias := internal.StdFileAliases[fd.GetName()]; alias != "" {
+			if _, ok := cr.protosByName[alias]; !ok {
+				// Alias exists for this file and is not already present in the cache.
+				// So we cache with that name, too.
+				aliasFd := proto.Clone(fd).(*descriptorpb.FileDescriptorProto)
+				aliasFd.Name = proto.String(alias)
+				cr.protosByName[alias] = aliasFd
+			}
+		}
 
-		fds = append(fds, fd)
+		cr.cacheMu.Unlock()
+	}
+	return fds, nil
+}
+
+func (cr *Client) getAndCacheFileDescriptors(filename, canonical string, depPath []string) (*desc.FileDescriptor, error) {
+	req := &refv1.ServerReflectionRequest{
+		MessageRequest: &refv1.ServerReflectionRequest_FileByFilename{
+			FileByFilename: filename,
+		},
+	}
+	_, err := cr.getAndCacheFileDescriptorProtos(req)
+	if err != nil {
+		return nil, err
+	}
+
+	cr.cacheMu.RLock()
+	// getAndCacheFileDescriptorProtos stores files at both the name in the response
+	// and at a known import alias (for files that have known import aliases). So
+	// the canonical name will be already cached by the above step.
+	fd, ok := cr.protosByName[canonical]
+	cr.cacheMu.RUnlock()
+
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "response does not include expected file %q", filename)
+	}
+	return cr.descriptorFromProto(fd, depPath)
+}
+
+// getAndCacheFileDescriptorsSearch is similar to getAndCacheFileDescriptors except it
+// searches all returned descriptors for one that matches the given accept predicate.
+// It is not recursive, so does not take a depPath parameter.
+func (cr *Client) getAndCacheFileDescriptorsSearch(
+	req *refv1.ServerReflectionRequest,
+	accept func(*desc.FileDescriptor) bool,
+) (*desc.FileDescriptor, error) {
+	fds, err := cr.getAndCacheFileDescriptorProtos(req)
+	if err != nil {
+		return nil, err
 	}
 
 	// find the right result from the files returned
 	for _, fd := range fds {
-		result, err := cr.descriptorFromProto(fd)
+		result, err := cr.descriptorFromProto(fd, nil)
 		if err != nil {
 			return nil, err
 		}
 		if accept(result) {
-			return result, nil
+			return result, err
 		}
 	}
-
 	return nil, status.Errorf(codes.NotFound, "response does not include expected file")
 }
 
-func (cr *Client) descriptorFromProto(fd *descriptorpb.FileDescriptorProto) (*desc.FileDescriptor, error) {
-	deps := make([]*desc.FileDescriptor, len(fd.GetDependency()))
+func (cr *Client) descriptorFromProto(fd *descriptorpb.FileDescriptorProto, depPath []string) (*desc.FileDescriptor, error) {
+	allowMissing := cr.allowMissing.Load()
+	deps := make([]*desc.FileDescriptor, 0, len(fd.GetDependency()))
+	var deferredErr error
+	var missingDeps []int
+	depPath = append(depPath, fd.GetName()) // record ourselves in the path of deps before we recurse
 	for i, depName := range fd.GetDependency() {
-		if dep, err := cr.FileByFilename(depName); err != nil {
-			return nil, err
+		if dep, err := cr.fileByFilename(depName, depPath); err != nil {
+			if _, ok := err.(*elementNotFoundError); !ok || !allowMissing {
+				return nil, err
+			}
+			// We'll ignore for now to see if the file is really necessary.
+			// (If it only supplies custom options, we can get by without it.)
+			if deferredErr == nil {
+				deferredErr = err
+			}
+			missingDeps = append(missingDeps, i)
 		} else {
-			deps[i] = dep
+			deps = append(deps, dep)
 		}
+	}
+	if len(missingDeps) > 0 {
+		fd = fileWithoutDeps(fd, missingDeps)
 	}
 	d, err := desc.CreateFileDescriptor(fd, deps...)
 	if err != nil {
+		if deferredErr != nil {
+			// assume the issue is the missing dep
+			return nil, deferredErr
+		}
 		return nil, err
 	}
-	d = cr.cacheFile(d)
+	d = cr.cacheFile(d, false)
 	return d, nil
 }
 
-func (cr *Client) cacheFile(fd *desc.FileDescriptor) *desc.FileDescriptor {
+func (cr *Client) cacheFile(fd *desc.FileDescriptor, fallback bool) *desc.FileDescriptor {
 	cr.cacheMu.Lock()
 	defer cr.cacheMu.Unlock()
 
-	// cache file descriptor by name, but don't overwrite existing entry
-	// (existing entry could come from concurrent caller)
-	if existingFd, ok := cr.filesByName[fd.GetName()]; ok {
-		return existingFd
+	// Cache file descriptor by name. If we can't overwrite an existing
+	// entry, return it. (Existing entry could come from concurrent caller.)
+	if existing, ok := cr.filesByName[fd.GetName()]; ok && !canOverwrite(existing, fallback) {
+		return existing.fd
 	}
-	cr.filesByName[fd.GetName()] = fd
+	entry := fileEntry{fd: fd, fallback: fallback}
+	cr.filesByName[fd.GetName()] = entry
 
 	// also cache by symbols and extensions
 	for _, m := range fd.GetMessageTypes() {
-		cr.cacheMessageLocked(fd, m)
+		cr.cacheMessageLocked(m, entry)
 	}
 	for _, e := range fd.GetEnumTypes() {
-		cr.filesBySymbol[e.GetFullyQualifiedName()] = fd
+		if !cr.maybeCacheFileBySymbol(e.GetFullyQualifiedName(), entry) {
+			continue
+		}
 		for _, v := range e.GetValues() {
-			cr.filesBySymbol[v.GetFullyQualifiedName()] = fd
+			cr.maybeCacheFileBySymbol(v.GetFullyQualifiedName(), entry)
 		}
 	}
 	for _, e := range fd.GetExtensions() {
-		cr.filesBySymbol[e.GetFullyQualifiedName()] = fd
-		cr.filesByExtension[extDesc{e.GetOwner().GetFullyQualifiedName(), e.GetNumber()}] = fd
+		if !cr.maybeCacheFileBySymbol(e.GetFullyQualifiedName(), entry) {
+			continue
+		}
+		cr.maybeCacheFileByExtension(extDesc{e.GetOwner().GetFullyQualifiedName(), e.GetNumber()}, entry)
 	}
 	for _, s := range fd.GetServices() {
-		cr.filesBySymbol[s.GetFullyQualifiedName()] = fd
+		if !cr.maybeCacheFileBySymbol(s.GetFullyQualifiedName(), entry) {
+			continue
+		}
 		for _, m := range s.GetMethods() {
-			cr.filesBySymbol[m.GetFullyQualifiedName()] = fd
+			cr.maybeCacheFileBySymbol(m.GetFullyQualifiedName(), entry)
 		}
 	}
 
 	return fd
 }
 
-func (cr *Client) cacheMessageLocked(fd *desc.FileDescriptor, md *desc.MessageDescriptor) {
-	cr.filesBySymbol[md.GetFullyQualifiedName()] = fd
+func (cr *Client) cacheMessageLocked(md *desc.MessageDescriptor, entry fileEntry) {
+	if !cr.maybeCacheFileBySymbol(md.GetFullyQualifiedName(), entry) {
+		return
+	}
 	for _, f := range md.GetFields() {
-		cr.filesBySymbol[f.GetFullyQualifiedName()] = fd
+		cr.maybeCacheFileBySymbol(f.GetFullyQualifiedName(), entry)
 	}
 	for _, o := range md.GetOneOfs() {
-		cr.filesBySymbol[o.GetFullyQualifiedName()] = fd
+		cr.maybeCacheFileBySymbol(o.GetFullyQualifiedName(), entry)
 	}
 	for _, e := range md.GetNestedEnumTypes() {
-		cr.filesBySymbol[e.GetFullyQualifiedName()] = fd
+		if !cr.maybeCacheFileBySymbol(e.GetFullyQualifiedName(), entry) {
+			continue
+		}
 		for _, v := range e.GetValues() {
-			cr.filesBySymbol[v.GetFullyQualifiedName()] = fd
+			cr.maybeCacheFileBySymbol(v.GetFullyQualifiedName(), entry)
 		}
 	}
 	for _, e := range md.GetNestedExtensions() {
-		cr.filesBySymbol[e.GetFullyQualifiedName()] = fd
-		cr.filesByExtension[extDesc{e.GetOwner().GetFullyQualifiedName(), e.GetNumber()}] = fd
+		if !cr.maybeCacheFileBySymbol(e.GetFullyQualifiedName(), entry) {
+			continue
+		}
+		cr.maybeCacheFileByExtension(extDesc{e.GetOwner().GetFullyQualifiedName(), e.GetNumber()}, entry)
 	}
 	for _, m := range md.GetNestedMessageTypes() {
-		cr.cacheMessageLocked(fd, m) // recurse
+		cr.cacheMessageLocked(m, entry) // recurse
 	}
+}
+
+func canOverwrite(existing fileEntry, fallback bool) bool {
+	return !fallback && existing.fallback
+}
+
+func (cr *Client) maybeCacheFileBySymbol(symbol string, entry fileEntry) bool {
+	existing, ok := cr.filesBySymbol[symbol]
+	if ok && !canOverwrite(existing, entry.fallback) {
+		return false
+	}
+	cr.filesBySymbol[symbol] = entry
+	return true
+}
+
+func (cr *Client) maybeCacheFileByExtension(ext extDesc, entry fileEntry) {
+	existing, ok := cr.filesByExtension[ext]
+	if ok && !canOverwrite(existing, entry.fallback) {
+		return
+	}
+	cr.filesByExtension[ext] = entry
 }
 
 // AllExtensionNumbersForType asks the server for all known extension numbers
 // for the given fully-qualified message name.
 func (cr *Client) AllExtensionNumbersForType(extendedMessageName string) ([]int32, error) {
-	req := &refv1alpha.ServerReflectionRequest{
-		MessageRequest: &refv1alpha.ServerReflectionRequest_AllExtensionNumbersOfType{
+	req := &refv1.ServerReflectionRequest{
+		MessageRequest: &refv1.ServerReflectionRequest_AllExtensionNumbersOfType{
 			AllExtensionNumbersOfType: extendedMessageName,
 		},
 	}
 	resp, err := cr.send(req)
-	if err != nil {
-		if isNotFound(err) {
-			return nil, symbolNotFound(extendedMessageName, symbolTypeMessage, nil)
-		}
+	var exts []int32
+	if err != nil && !isNotFound(err) {
+		// If the server doesn't know about the message type and returns "not found",
+		// we'll treat that as "no known extensions" instead of returning an error.
 		return nil, err
 	}
-
-	extResp := resp.GetAllExtensionNumbersResponse()
-	if extResp == nil {
-		return nil, &ProtocolError{reflect.TypeOf(extResp).Elem()}
+	if err == nil {
+		extResp := resp.GetAllExtensionNumbersResponse()
+		if extResp == nil {
+			return nil, &ProtocolError{reflect.TypeOf(extResp).Elem()}
+		}
+		exts = extResp.ExtensionNumber
 	}
-	return extResp.ExtensionNumber, nil
+
+	resolver := cr.fallbackResolver.Load()
+	if resolver != nil && resolver.extensionResolver != nil {
+		type extRanger interface {
+			RangeExtensionsByMessage(message protoreflect.FullName, f func(protoreflect.ExtensionType) bool)
+		}
+		if ranger, ok := resolver.extensionResolver.(extRanger); ok {
+			// Merge results with fallback resolver
+			extSet := map[int32]struct{}{}
+			ranger.RangeExtensionsByMessage(protoreflect.FullName(extendedMessageName), func(extType protoreflect.ExtensionType) bool {
+				extSet[int32(extType.TypeDescriptor().Number())] = struct{}{}
+				return true
+			})
+			if len(extSet) > 0 {
+				// De-dupe with the set of extension numbers we got
+				// from the server and merge the results back into exts.
+				for _, ext := range exts {
+					extSet[ext] = struct{}{}
+				}
+				exts = make([]int32, 0, len(extSet))
+				for ext := range extSet {
+					exts = append(exts, ext)
+				}
+				sort.Slice(exts, func(i, j int) bool { return exts[i] < exts[j] })
+			}
+		}
+	}
+	return exts, nil
 }
 
 // ListServices asks the server for the fully-qualified names of all exposed
 // services.
 func (cr *Client) ListServices() ([]string, error) {
-	req := &refv1alpha.ServerReflectionRequest{
-		MessageRequest: &refv1alpha.ServerReflectionRequest_ListServices{
+	req := &refv1.ServerReflectionRequest{
+		MessageRequest: &refv1.ServerReflectionRequest_ListServices{
 			// proto doesn't indicate any purpose for this value and server impl
 			// doesn't actually use it...
 			ListServices: "*",
@@ -477,7 +734,7 @@ func (cr *Client) ListServices() ([]string, error) {
 	return serviceNames, nil
 }
 
-func (cr *Client) send(req *refv1alpha.ServerReflectionRequest) (*refv1alpha.ServerReflectionResponse, error) {
+func (cr *Client) send(req *refv1.ServerReflectionRequest) (*refv1.ServerReflectionResponse, error) {
 	// we allow one immediate retry, in case we have a stale stream
 	// (e.g. closed by server)
 	resp, err := cr.doSend(req)
@@ -502,7 +759,7 @@ func isNotFound(err error) bool {
 	return ok && s.Code() == codes.NotFound
 }
 
-func (cr *Client) doSend(req *refv1alpha.ServerReflectionRequest) (*refv1alpha.ServerReflectionResponse, error) {
+func (cr *Client) doSend(req *refv1.ServerReflectionRequest) (*refv1.ServerReflectionResponse, error) {
 	// TODO: Streams are thread-safe, so we shouldn't need to lock. But without locking, we'll need more machinery
 	// (goroutines and channels) to ensure that responses are correctly correlated with their requests and thus
 	// delivered in correct oder.
@@ -511,11 +768,19 @@ func (cr *Client) doSend(req *refv1alpha.ServerReflectionRequest) (*refv1alpha.S
 	return cr.doSendLocked(0, nil, req)
 }
 
-func (cr *Client) doSendLocked(attemptCount int, prevErr error, req *refv1alpha.ServerReflectionRequest) (*refv1alpha.ServerReflectionResponse, error) {
+func (cr *Client) doSendLocked(attemptCount int, prevErr error, req *refv1.ServerReflectionRequest) (*refv1.ServerReflectionResponse, error) {
 	if attemptCount >= 3 && prevErr != nil {
 		return nil, prevErr
 	}
-	if status.Code(prevErr) == codes.Unimplemented && cr.useV1() {
+	if (status.Code(prevErr) == codes.Unimplemented ||
+		status.Code(prevErr) == codes.Unavailable) &&
+		cr.useV1() {
+		// If v1 is unimplemented, fallback to v1alpha.
+		// We also fallback on unavailable because some servers have been
+		// observed to close the connection/cancel the stream, w/out sending
+		// back status or headers, when the service name is not known. When
+		// this happens, the RPC status code is unavailable.
+		// See https://github.com/fullstorydev/grpcurl/issues/434
 		cr.useV1Alpha = true
 		cr.lastTriedV1 = cr.now()
 	}
@@ -556,7 +821,7 @@ func (cr *Client) initStreamLocked() error {
 		// try the v1 API
 		streamv1, err := cr.stubV1.ServerReflectionInfo(newCtx)
 		if err == nil {
-			cr.stream = adaptStreamFromV1{streamv1}
+			cr.stream = streamv1
 			return nil
 		}
 		if status.Code(err) != codes.Unimplemented {
@@ -568,7 +833,11 @@ func (cr *Client) initStreamLocked() error {
 		cr.lastTriedV1 = cr.now()
 	}
 	var err error
-	cr.stream, err = cr.stubV1Alpha.ServerReflectionInfo(newCtx)
+	streamv1alpha, err := cr.stubV1Alpha.ServerReflectionInfo(newCtx)
+	if err == nil {
+		cr.stream = adaptStreamFromV1Alpha{streamv1alpha}
+		return nil
+	}
 	return err
 }
 
@@ -579,26 +848,7 @@ func (cr *Client) useV1() bool {
 // Reset ensures that any active stream with the server is closed, releasing any
 // resources.
 func (cr *Client) Reset() {
-	cr.connMu.Lock()
-	defer cr.connMu.Unlock()
-	cr.resetLocked()
-}
-
-func (cr *Client) resetLocked() {
-	if cr.stream != nil {
-		cr.stream.CloseSend()
-		for {
-			// drain the stream, this covers io.EOF too
-			if _, err := cr.stream.Recv(); err != nil {
-				break
-			}
-		}
-		cr.stream = nil
-	}
-	if cr.cancel != nil {
-		cr.cancel()
-		cr.cancel = nil
-	}
+	cr.liveStream.reset()
 }
 
 // ResolveService asks the server to resolve the given fully-qualified service
@@ -693,6 +943,85 @@ func (cr *Client) ResolveExtension(extendedType string, extensionNumber int32) (
 	}
 }
 
+// liveStream is a separate pointer value that holds the gRPC stream so that we
+// can use runtime.AddCleanup with a Client to auto-close any remaining open
+// gRPC stream.
+type liveStream struct {
+	connMu      sync.Mutex
+	cancel      context.CancelFunc
+	stream      refv1.ServerReflection_ServerReflectionInfoClient
+	useV1Alpha  bool
+	lastTriedV1 time.Time
+}
+
+// reset ensures that any active stream with the server is closed, releasing any
+// resources.
+func (ls *liveStream) reset() {
+	// This one method is factored out to liveStream instead of on *Client so
+	// it can be used from a cleanup w/out introducing a reference that keeps
+	// the *Client alive/reachable.
+	ls.connMu.Lock()
+	defer ls.connMu.Unlock()
+	ls.resetLocked()
+}
+
+func (ls *liveStream) resetLocked() {
+	if ls.stream != nil {
+		_ = ls.stream.CloseSend()
+		for {
+			// drain the stream, this covers io.EOF too
+			if _, err := ls.stream.Recv(); err != nil {
+				break
+			}
+		}
+		ls.stream = nil
+	}
+	if ls.cancel != nil {
+		ls.cancel()
+		ls.cancel = nil
+	}
+}
+
+func fileWithoutDeps(fd *descriptorpb.FileDescriptorProto, missingDeps []int) *descriptorpb.FileDescriptorProto {
+	// We need to rebuild the file without the missing deps.
+	fd = proto.Clone(fd).(*descriptorpb.FileDescriptorProto)
+	newNumDeps := len(fd.GetDependency()) - len(missingDeps)
+	newDeps := make([]string, 0, newNumDeps)
+	remapped := make(map[int]int, newNumDeps)
+	missingIdx := 0
+	for i, dep := range fd.GetDependency() {
+		if missingIdx < len(missingDeps) {
+			if i == missingDeps[missingIdx] {
+				// This dep was missing. Skip it.
+				missingIdx++
+				continue
+			}
+		}
+		remapped[i] = len(newDeps)
+		newDeps = append(newDeps, dep)
+	}
+	// Also rebuild public and weak import slices.
+	newPublic := make([]int32, 0, len(fd.GetPublicDependency()))
+	for _, idx := range fd.GetPublicDependency() {
+		newIdx, ok := remapped[int(idx)]
+		if ok {
+			newPublic = append(newPublic, int32(newIdx))
+		}
+	}
+	newWeak := make([]int32, 0, len(fd.GetWeakDependency()))
+	for _, idx := range fd.GetWeakDependency() {
+		newIdx, ok := remapped[int(idx)]
+		if ok {
+			newWeak = append(newWeak, int32(newIdx))
+		}
+	}
+
+	fd.Dependency = newDeps
+	fd.PublicDependency = newPublic
+	fd.WeakDependency = newWeak
+	return fd
+}
+
 func findExtension(extendedType string, extensionNumber int32, scope extensionScope) *desc.FieldDescriptor {
 	// search extensions in this scope
 	for _, ext := range scope.extensions() {
@@ -753,19 +1082,19 @@ func (mde msgDescriptorExtensions) nestedScopes() []extensionScope {
 	return scopes
 }
 
-type adaptStreamFromV1 struct {
-	refv1.ServerReflection_ServerReflectionInfoClient
+type adaptStreamFromV1Alpha struct {
+	refv1alpha.ServerReflection_ServerReflectionInfoClient
 }
 
-func (a adaptStreamFromV1) Send(request *refv1alpha.ServerReflectionRequest) error {
-	v1req := toV1Request(request)
+func (a adaptStreamFromV1Alpha) Send(request *refv1.ServerReflectionRequest) error {
+	v1req := toV1AlphaRequest(request)
 	return a.ServerReflection_ServerReflectionInfoClient.Send(v1req)
 }
 
-func (a adaptStreamFromV1) Recv() (*refv1alpha.ServerReflectionResponse, error) {
+func (a adaptStreamFromV1Alpha) Recv() (*refv1.ServerReflectionResponse, error) {
 	v1resp, err := a.ServerReflection_ServerReflectionInfoClient.Recv()
 	if err != nil {
 		return nil, err
 	}
-	return toV1AlphaResponse(v1resp), nil
+	return toV1Response(v1resp), nil
 }
