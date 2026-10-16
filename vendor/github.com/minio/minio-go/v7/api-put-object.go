@@ -23,14 +23,16 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"hash/crc32"
 	"io"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/minio/minio-go/v7/pkg/encrypt"
 	"github.com/minio/minio-go/v7/pkg/s3utils"
+	"github.com/minio/minio-go/v7/pkg/tags"
 	"golang.org/x/net/http/httpguts"
 )
 
@@ -46,6 +48,8 @@ const (
 	ReplicationStatusFailed ReplicationStatus = "FAILED"
 	// ReplicationStatusReplica indicates object is a replica of a source
 	ReplicationStatusReplica ReplicationStatus = "REPLICA"
+	// ReplicationStatusReplicaEdge indicates object is a replica of a edge source
+	ReplicationStatusReplicaEdge ReplicationStatus = "REPLICA-EDGE"
 )
 
 // Empty returns true if no replication status set.
@@ -77,6 +81,7 @@ type PutObjectOptions struct {
 	ContentDisposition      string
 	ContentLanguage         string
 	CacheControl            string
+	Expires                 time.Time
 	Mode                    RetentionMode
 	RetainUntilDate         time.Time
 	ServerSideEncryption    encrypt.ServerSide
@@ -89,11 +94,29 @@ type PutObjectOptions struct {
 	DisableContentSha256    bool
 	DisableMultipart        bool
 
+	// AutoChecksum is the type of checksum that will be added if no other checksum is added,
+	// like MD5 or SHA256 streaming checksum, and it is feasible for the upload type.
+	// If none is specified CRC32C is used, since it is generally the fastest.
+	AutoChecksum ChecksumType
+
+	// Checksum will force a checksum of the specific type.
+	// This requires that the client was created with "TrailingHeaders:true" option,
+	// and that the destination server supports it.
+	// Unavailable with V2 signatures & Google endpoints.
+	// This will disable content MD5 checksums if set.
+	Checksum ChecksumType
+
 	// ConcurrentStreamParts will create NumThreads buffers of PartSize bytes,
 	// fill them serially and upload them in parallel.
 	// This can be used for faster uploads on non-seekable or slow-to-seek input.
 	ConcurrentStreamParts bool
 	Internal              AdvancedPutOptions
+
+	// RDMABuffer, when non-nil and Options.EnableRDMA=true, selects the RDMA
+	// path via libminiocpp.so. Must reference RDMABufferSize contiguous bytes.
+	// When set, the reader / size args to PutObject are ignored.
+	RDMABuffer     unsafe.Pointer
+	RDMABufferSize int
 
 	customHeaders http.Header
 }
@@ -105,7 +128,11 @@ func (opts *PutObjectOptions) SetMatchETag(etag string) {
 	if opts.customHeaders == nil {
 		opts.customHeaders = http.Header{}
 	}
-	opts.customHeaders.Set("If-Match", "\""+etag+"\"")
+	if etag == "*" {
+		opts.customHeaders.Set("If-Match", "*")
+	} else {
+		opts.customHeaders.Set("If-Match", "\""+etag+"\"")
+	}
 }
 
 // SetMatchETagExcept if etag does not match while PUT MinIO returns an
@@ -115,7 +142,11 @@ func (opts *PutObjectOptions) SetMatchETagExcept(etag string) {
 	if opts.customHeaders == nil {
 		opts.customHeaders = http.Header{}
 	}
-	opts.customHeaders.Set("If-None-Match", "\""+etag+"\"")
+	if etag == "*" {
+		opts.customHeaders.Set("If-None-Match", "*")
+	} else {
+		opts.customHeaders.Set("If-None-Match", "\""+etag+"\"")
+	}
 }
 
 // getNumThreads - gets the number of threads to be used in the multipart
@@ -126,7 +157,7 @@ func (opts PutObjectOptions) getNumThreads() (numThreads int) {
 	} else {
 		numThreads = totalWorkers
 	}
-	return
+	return numThreads
 }
 
 // Header - constructs the headers from metadata entered by user in
@@ -153,12 +184,16 @@ func (opts PutObjectOptions) Header() (header http.Header) {
 		header.Set("Cache-Control", opts.CacheControl)
 	}
 
+	if !opts.Expires.IsZero() {
+		header.Set("Expires", opts.Expires.UTC().Format(http.TimeFormat))
+	}
+
 	if opts.Mode != "" {
 		header.Set(amzLockMode, opts.Mode.String())
 	}
 
 	if !opts.RetainUntilDate.IsZero() {
-		header.Set("X-Amz-Object-Lock-Retain-Until-Date", opts.RetainUntilDate.Format(time.RFC3339))
+		header.Set(amzLockRetainUntil, opts.RetainUntilDate.UTC().Format(time.RFC3339))
 	}
 
 	if opts.LegalHold != "" {
@@ -203,11 +238,13 @@ func (opts PutObjectOptions) Header() (header http.Header) {
 	}
 
 	if len(opts.UserTags) != 0 {
-		header.Set(amzTaggingHeader, s3utils.TagEncode(opts.UserTags))
+		if tags, _ := tags.NewTags(opts.UserTags, true); tags != nil {
+			header.Set(amzTaggingHeader, tags.String())
+		}
 	}
 
 	for k, v := range opts.UserMetadata {
-		if isAmzHeader(k) || isStandardHeader(k) || isStorageClassHeader(k) {
+		if isAmzHeader(k) || isStandardHeader(k) || isStorageClassHeader(k) || isMinioHeader(k) {
 			header.Set(k, v)
 		} else {
 			header.Set("x-amz-meta-"+k, v)
@@ -219,13 +256,13 @@ func (opts PutObjectOptions) Header() (header http.Header) {
 		header[k] = v
 	}
 
-	return
+	return header
 }
 
 // validate() checks if the UserMetadata map has standard headers or and raises an error if so.
-func (opts PutObjectOptions) validate() (err error) {
+func (opts PutObjectOptions) validate(c *Client) (err error) {
 	for k, v := range opts.UserMetadata {
-		if !httpguts.ValidHeaderFieldName(k) || isStandardHeader(k) || isSSEHeader(k) || isStorageClassHeader(k) {
+		if !httpguts.ValidHeaderFieldName(k) || isStandardHeader(k) || isSSEHeader(k) || isStorageClassHeader(k) || isMinioHeader(k) {
 			return errInvalidArgument(k + " unsupported user defined metadata name")
 		}
 		if !httpguts.ValidHeaderFieldValue(v) {
@@ -238,6 +275,26 @@ func (opts PutObjectOptions) validate() (err error) {
 	if opts.LegalHold != "" && !opts.LegalHold.IsValid() {
 		return errInvalidArgument(opts.LegalHold.String() + " unsupported legal-hold status")
 	}
+
+	checkCrc := false
+	for k := range opts.UserMetadata {
+		if strings.HasPrefix(k, "x-amz-checksum-") {
+			checkCrc = true
+			break
+		}
+	}
+
+	if opts.Checksum.IsSet() || checkCrc {
+		switch {
+		case !c.trailingHeaderSupport:
+			return errInvalidArgument("Checksum requires Client with TrailingHeaders enabled")
+		case c.overrideSignerType.IsV2():
+			return errInvalidArgument("Checksum cannot be used with v2 signatures")
+		case s3utils.IsGoogleEndpoint(*c.endpointURL):
+			return errInvalidArgument("Checksum cannot be used with GCS endpoints")
+		}
+	}
+
 	return nil
 }
 
@@ -261,31 +318,53 @@ func (a completedParts) Less(i, j int) bool { return a[i].PartNumber < a[j].Part
 //
 //   - For size input as -1 PutObject does a multipart Put operation
 //     until input stream reaches EOF. Maximum object size that can
-//     be uploaded through this operation will be 5TiB.
+//     be uploaded through this operation will be 5TiB by default.
+//     For larger objects (up to ~48.83TiB), set PutObjectOptions.PartSize
+//     to control memory usage and enable uploads beyond 5TiB.
+//
+//     The ~48.83TiB ceiling is the product of the client's max part size and
+//     max parts count, both of which follow Options.UploadLimits.
 //
 //     WARNING: Passing down '-1' will use memory and these cannot
 //     be reused for best outcomes for PutObject(), pass the size always.
 //
 // NOTE: Upon errors during upload multipart operation is entirely aborted.
-func (c *Client) PutObject(ctx context.Context, bucketName, objectName string, reader io.Reader, objectSize int64,
+func (c *Client) PutObject(ctx context.Context, bucketName, objectName string, reader io.Reader, size int64,
 	opts PutObjectOptions,
 ) (info UploadInfo, err error) {
-	if objectSize < 0 && opts.DisableMultipart {
+	if opts.RDMABuffer != nil && c.rdmaEnabled {
+		// A reader alongside the buffer means stream it: libminiocpp pins one
+		// part at a time rather than the whole object, so this carries objects
+		// past the 4 GiB an RDMA descriptor can address and does not ask the
+		// caller to pin the object's size. Without a reader the buffer already
+		// holds the object and goes out in a single transfer.
+		if reader != nil {
+			return c.putObjectRDMAStream(ctx, bucketName, objectName, reader, size, opts)
+		}
+		return c.putObjectRDMA(ctx, bucketName, objectName, opts)
+	}
+	if size < 0 && opts.DisableMultipart {
 		return UploadInfo{}, errors.New("object size must be provided with disable multipart upload")
 	}
 
-	err = opts.validate()
+	err = opts.validate(c)
 	if err != nil {
 		return UploadInfo{}, err
 	}
 
-	return c.putObjectCommon(ctx, bucketName, objectName, reader, objectSize, opts)
-}
-
-func (c *Client) putObjectCommon(ctx context.Context, bucketName, objectName string, reader io.Reader, size int64, opts PutObjectOptions) (info UploadInfo, err error) {
 	// Check for largest object size allowed.
-	if size > int64(maxMultipartPutObjectSize) {
-		return UploadInfo{}, errEntityTooLarge(size, maxMultipartPutObjectSize, bucketName, objectName)
+	if maxObjectSize := c.limits.maxObjectSize(); size > maxObjectSize {
+		return UploadInfo{}, errEntityTooLarge(size, maxObjectSize, bucketName, objectName)
+	}
+
+	if opts.Checksum.IsSet() {
+		opts.AutoChecksum = opts.Checksum
+		opts.SendContentMd5 = false
+	}
+
+	if c.trailingHeaderSupport {
+		opts.AutoChecksum.SetDefault(ChecksumCRC32C)
+		addAutoChecksumHeaders(&opts)
 	}
 
 	// NOTE: Streaming signature is not supported by GCS.
@@ -296,6 +375,19 @@ func (c *Client) putObjectCommon(ctx context.Context, bucketName, objectName str
 	partSize := opts.PartSize
 	if opts.PartSize == 0 {
 		partSize = minPartSize
+	}
+
+	// Only an explicitly configured single PUT limit is enforced here. The 5GiB
+	// default is Amazon's; MinIO/AIStor and others accept far larger single
+	// PUTs, and PutObjectsSnowball sets DisableMultipart itself, so applying the
+	// default would refuse uploads that work today.
+	if maxSinglePut := c.limits.MaxSinglePutObjectSize; maxSinglePut > 0 && size > maxSinglePut {
+		if opts.DisableMultipart {
+			return UploadInfo{}, errEntityTooLarge(size, maxSinglePut, bucketName, objectName)
+		}
+		if int64(partSize) > maxSinglePut {
+			partSize = uint64(maxSinglePut)
+		}
 	}
 
 	if c.overrideSignerType.IsV2() {
@@ -315,7 +407,7 @@ func (c *Client) putObjectCommon(ctx context.Context, bucketName, objectName str
 		return c.putObjectMultipartStreamNoLength(ctx, bucketName, objectName, reader, opts)
 	}
 
-	if size < int64(partSize) || opts.DisableMultipart {
+	if size <= int64(partSize) || opts.DisableMultipart {
 		return c.putObject(ctx, bucketName, objectName, reader, size, opts)
 	}
 
@@ -339,16 +431,9 @@ func (c *Client) putObjectMultipartStreamNoLength(ctx context.Context, bucketNam
 	var complMultipartUpload completeMultipartUpload
 
 	// Calculate the optimal parts info for a given size.
-	totalPartsCount, partSize, _, err := OptimalPartInfo(-1, opts.PartSize)
+	totalPartsCount, partSize, _, err := c.optimalPartInfo(-1, opts.PartSize)
 	if err != nil {
 		return UploadInfo{}, err
-	}
-
-	if !opts.SendContentMd5 {
-		if opts.UserMetadata == nil {
-			opts.UserMetadata = make(map[string]string, 1)
-		}
-		opts.UserMetadata["X-Amz-Checksum-Algorithm"] = "CRC32C"
 	}
 
 	// Initiate a new multipart upload.
@@ -356,11 +441,10 @@ func (c *Client) putObjectMultipartStreamNoLength(ctx context.Context, bucketNam
 	if err != nil {
 		return UploadInfo{}, err
 	}
-	delete(opts.UserMetadata, "X-Amz-Checksum-Algorithm")
 
 	defer func() {
 		if err != nil {
-			c.abortMultipartUpload(ctx, bucketName, objectName, uploadID)
+			c.abortFailedUpload(ctx, bucketName, objectName, uploadID)
 		}
 	}()
 
@@ -375,12 +459,13 @@ func (c *Client) putObjectMultipartStreamNoLength(ctx context.Context, bucketNam
 
 	// Create checksums
 	// CRC32C is ~50% faster on AMD64 @ 30GB/s
-	var crcBytes []byte
 	customHeader := make(http.Header)
-	crc := crc32.New(crc32.MakeTable(crc32.Castagnoli))
+	crc := opts.AutoChecksum.Hasher()
 
+	var lastErr error
 	for partNumber <= totalPartsCount {
 		length, rerr := readFull(reader, buf)
+		lastErr = rerr
 		if rerr == io.EOF && partNumber > 1 {
 			break
 		}
@@ -396,12 +481,17 @@ func (c *Client) putObjectMultipartStreamNoLength(ctx context.Context, bucketNam
 			hash.Write(buf[:length])
 			md5Base64 = base64.StdEncoding.EncodeToString(hash.Sum(nil))
 			hash.Close()
-		} else {
+		}
+
+		if opts.AutoChecksum.IsSet() {
 			crc.Reset()
 			crc.Write(buf[:length])
 			cSum := crc.Sum(nil)
-			customHeader.Set("x-amz-checksum-crc32c", base64.StdEncoding.EncodeToString(cSum))
-			crcBytes = append(crcBytes, cSum...)
+			customHeader.Set(opts.AutoChecksum.Key(), base64.StdEncoding.EncodeToString(cSum))
+			customHeader.Set(amzChecksumAlgo, opts.AutoChecksum.String())
+			if opts.AutoChecksum.FullObjectRequested() {
+				customHeader.Set(amzChecksumMode, ChecksumFullObjectMode.String())
+			}
 		}
 
 		// Update progress reader appropriately to the latest offset
@@ -431,33 +521,45 @@ func (c *Client) putObjectMultipartStreamNoLength(ctx context.Context, bucketNam
 		}
 	}
 
+	// A nil read error on the last allowed part means the reader was never
+	// drained; completing here would store a truncated object.
+	if lastErr == nil {
+		if err = errIfMoreData(reader, totalUploadedSize, int64(totalPartsCount), bucketName, objectName); err != nil {
+			return UploadInfo{}, err
+		}
+	}
+
 	// Loop over total uploaded parts to save them in
 	// Parts array before completing the multipart request.
+	allParts := make([]ObjectPart, 0, len(partsInfo))
 	for i := 1; i < partNumber; i++ {
 		part, ok := partsInfo[i]
 		if !ok {
 			return UploadInfo{}, errInvalidArgument(fmt.Sprintf("Missing part number %d", i))
 		}
+		allParts = append(allParts, part)
 		complMultipartUpload.Parts = append(complMultipartUpload.Parts, CompletePart{
-			ETag:           part.ETag,
-			PartNumber:     part.PartNumber,
-			ChecksumCRC32:  part.ChecksumCRC32,
-			ChecksumCRC32C: part.ChecksumCRC32C,
-			ChecksumSHA1:   part.ChecksumSHA1,
-			ChecksumSHA256: part.ChecksumSHA256,
+			ETag:              part.ETag,
+			PartNumber:        part.PartNumber,
+			ChecksumCRC32:     part.ChecksumCRC32,
+			ChecksumCRC32C:    part.ChecksumCRC32C,
+			ChecksumSHA1:      part.ChecksumSHA1,
+			ChecksumSHA256:    part.ChecksumSHA256,
+			ChecksumCRC64NVME: part.ChecksumCRC64NVME,
+			ChecksumMD5:       part.ChecksumMD5,
+			ChecksumSHA512:    part.ChecksumSHA512,
+			ChecksumXXHash64:  part.ChecksumXXHash64,
+			ChecksumXXHash3:   part.ChecksumXXHash3,
+			ChecksumXXHash128: part.ChecksumXXHash128,
 		})
 	}
 
 	// Sort all completed parts.
 	sort.Sort(completedParts(complMultipartUpload.Parts))
 
-	opts = PutObjectOptions{}
-	if len(crcBytes) > 0 {
-		// Add hash of hashes.
-		crc.Reset()
-		crc.Write(crcBytes)
-		opts.UserMetadata = map[string]string{"X-Amz-Checksum-Crc32c": base64.StdEncoding.EncodeToString(crc.Sum(nil))}
-	}
+	opts = completeUploadOpts(opts)
+	applyAutoChecksum(&opts, allParts)
+
 	uploadInfo, err := c.completeMultipartUpload(ctx, bucketName, objectName, uploadID, complMultipartUpload, opts)
 	if err != nil {
 		return UploadInfo{}, err

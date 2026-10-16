@@ -69,6 +69,8 @@ type PutObjectFanOutResponse struct {
 // stream multiple objects are written, defined via a list of PutObjectFanOutRequests. Each entry
 // in PutObjectFanOutRequest carries an object keyname and its relevant metadata if any. `Key` is
 // mandatory, rest of the other options in PutObjectFanOutRequest are optional.
+//
+// Deprecated: Use PutObject instead.
 func (c *Client) PutObjectFanOut(ctx context.Context, bucket string, fanOutData io.Reader, fanOutReq PutObjectFanOutRequest) ([]PutObjectFanOutResponse, error) {
 	if len(fanOutReq.Entries) == 0 {
 		return nil, errInvalidArgument("fan out requests cannot be empty")
@@ -85,7 +87,10 @@ func (c *Client) PutObjectFanOut(ctx context.Context, bucket string, fanOutData 
 	policy.SetEncryption(fanOutReq.SSE)
 
 	// Set checksum headers if any.
-	policy.SetChecksum(fanOutReq.Checksum)
+	err := policy.SetChecksum(fanOutReq.Checksum)
+	if err != nil {
+		return nil, err
+	}
 
 	url, formData, err := c.PresignedPostPolicy(ctx, policy)
 	if err != nil {
